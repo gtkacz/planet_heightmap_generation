@@ -88,7 +88,7 @@ Core world parameters that control the planet's structure (changing these requir
 | Plates | 4 – 120 | 80 | Number of tectonic plates |
 | Continents | 1 – 10 | 4 | Target number of separate landmasses |
 | Roughness | 0 – 0.5 | 0.40 | Fractal noise magnitude for terrain roughness |
-| Continent Size Variety | 0 – 1 | 0 | How much continent sizes vary — 0 keeps continents similar in size, 1 allows a mix of large and small landmasses |
+| Continent Size Variety | 0 – 1 | 0.35 | How much continent sizes vary — 0 keeps continents similar in size, 1 allows a mix of large and small landmasses |
 | Land Coverage | 0 – 1 | 0.3 | Percentage of the planet covered by land. Low values create ocean worlds, high values create desert worlds. Above 40% coverage, precipitation is progressively dampened to simulate reduced oceanic moisture |
 
 ### Terrain Sculpting

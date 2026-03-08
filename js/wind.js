@@ -53,18 +53,15 @@ function buildPeriodicSpline(xs, ys) {
 }
 
 function evaluateSpline(spline, lon) {
-    const { xs, ys, b, c, d, h, n, period } = spline;
+    const { xs, ys, b, c, d, n, period } = spline;
     // Normalize lon to [xs[0], xs[0] + period)
     let t = ((lon - xs[0]) % period + period) % period + xs[0];
 
-    // Find segment
-    let seg = 0;
-    for (let i = 0; i < n; i++) {
-        const next = (i + 1) % n;
-        const lo = xs[i];
-        const hi = i < n - 1 ? xs[next] : xs[0] + period;
-        if (t >= lo && t < hi) { seg = i; break; }
-    }
+    // Direct index calculation — segments are equally spaced
+    const segStep = period / n;
+    let seg = Math.floor((t - xs[0]) / segStep);
+    if (seg < 0) seg = 0;
+    else if (seg >= n) seg = n - 1;
 
     const dx = t - xs[seg];
     return ys[seg] + b[seg] * dx + c[seg] * dx * dx + d[seg] * dx * dx * dx;
@@ -91,13 +88,17 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
     const numBins = LAT_BINS * LON_BINS;
 
     // CSR (compressed sparse row) format: count regions per bin, then prefix-sum
+    // Cache bin index per region to avoid recomputing in the fill pass
+    const r_bin = new Uint32Array(numRegions);
     const binCount = new Uint32Array(numBins);
     for (let r = 0; r < numRegions; r++) {
         const latBin = Math.max(0, Math.min(LAT_BINS - 1,
             Math.floor((r_lat[r] + Math.PI / 2) / Math.PI * LAT_BINS)));
         const lonBin = Math.max(0, Math.min(LON_BINS - 1,
             Math.floor((r_lon[r] + Math.PI) / (2 * Math.PI) * LON_BINS)));
-        binCount[latBin * LON_BINS + lonBin]++;
+        const bin = latBin * LON_BINS + lonBin;
+        r_bin[r] = bin;
+        binCount[bin]++;
     }
 
     const binOffset = new Uint32Array(numBins + 1);
@@ -108,11 +109,7 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
     const indices = new Uint32Array(numRegions);
     const fillPos = new Uint32Array(numBins);
     for (let r = 0; r < numRegions; r++) {
-        const latBin = Math.max(0, Math.min(LAT_BINS - 1,
-            Math.floor((r_lat[r] + Math.PI / 2) / Math.PI * LAT_BINS)));
-        const lonBin = Math.max(0, Math.min(LON_BINS - 1,
-            Math.floor((r_lon[r] + Math.PI) / (2 * Math.PI) * LON_BINS)));
-        const bin = latBin * LON_BINS + lonBin;
+        const bin = r_bin[r];
         indices[binOffset[bin] + fillPos[bin]] = r;
         fillPos[bin]++;
     }
@@ -597,6 +594,9 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     const r_gradE = new Float32Array(numRegions);
     const r_gradN = new Float32Array(numRegions);
 
+    // Smooth pressure field ~75 km (scale-invariant) — constant across seasons
+    const pressSmoothPasses = Math.max(1, Math.round(75 / avgEdgeKm));
+
     for (const { name, itcz } of seasons) {
         // Step 2: Pressure field
         t0 = performance.now();
@@ -609,9 +609,6 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
                 r_xyz[3 * r], r_xyz[3 * r + 1], r_xyz[3 * r + 2]
             );
         }
-
-        // Smooth pressure field ~75 km (scale-invariant)
-        const pressSmoothPasses = Math.max(1, Math.round(75 / avgEdgeKm));
         smoothField(mesh, r_pressure, pressSmoothPasses);
         timing.push({ stage: `Wind: pressure field (${name})`, ms: performance.now() - t0 });
 

@@ -54,25 +54,28 @@ function computeCoastFields(mesh, r_xyz, r_isOcean,
         }
     }
 
-    // BFS: compute hop distance from seed set through ocean cells
+    // BFS: compute hop distance from seed set through ocean cells.
+    // Reuses a single queue array (capacity allocated once) across all three passes.
+    const bfsQueue = new Int32Array(numRegions);
+
     function bfsDistance(seeds) {
         const dist = new Int32Array(numRegions);
         dist.fill(-1);
-        const queue = [];
+        let qLen = 0;
         for (const s of seeds) {
             dist[s] = 0;
-            queue.push(s);
+            bfsQueue[qLen++] = s;
         }
         let head = 0;
-        while (head < queue.length) {
-            const r = queue[head++];
+        while (head < qLen) {
+            const r = bfsQueue[head++];
             const d = dist[r] + 1;
             const end = adjOffset[r + 1];
             for (let ni = adjOffset[r]; ni < end; ni++) {
                 const nb = adjList[ni];
                 if (r_isOcean[nb] && dist[nb] === -1) {
                     dist[nb] = d;
-                    queue.push(nb);
+                    bfsQueue[qLen++] = nb;
                 }
             }
         }
@@ -355,20 +358,24 @@ export function computeOceanCurrents(mesh, r_xyz, r_elevation, windResult) {
         smoothOcean(mesh, r_warmth, r_isOcean, warmthSmoothPasses);
 
         // Step 7: Normalize speed (95th percentile)
+        // Use speed-squared to avoid sqrt in the hot loop; sqrt is monotonic
+        // so percentile on squared values gives the same ranking.
         const r_speed = new Float32Array(numRegions);
-        const oceanSpeeds = new Float32Array(numRegions);
+        const oceanSpeedsSq = new Float32Array(numRegions);
         let oceanCount = 0;
         for (let r = 0; r < numRegions; r++) {
-            const spd = Math.sqrt(currentE[r] * currentE[r] + currentN[r] * currentN[r]);
-            r_speed[r] = spd;
-            if (r_isOcean[r] && spd > 0) oceanSpeeds[oceanCount++] = spd;
+            const spdSq = currentE[r] * currentE[r] + currentN[r] * currentN[r];
+            r_speed[r] = spdSq;
+            if (r_isOcean[r] && spdSq > 0) oceanSpeedsSq[oceanCount++] = spdSq;
         }
-        const p95 = percentile(oceanSpeeds.subarray(0, oceanCount), 0.95);
+        const p95Sq = percentile(oceanSpeedsSq.subarray(0, oceanCount), 0.95);
+        // Now convert to linear 0-1: speed/p95 = sqrt(spdSq)/sqrt(p95Sq) = sqrt(spdSq/p95Sq)
+        const invP95Sq = 1 / p95Sq;
         for (let r = 0; r < numRegions; r++) {
-            r_speed[r] = Math.min(1, r_speed[r] / p95);
+            r_speed[r] = Math.min(1, Math.sqrt(r_speed[r] * invP95Sq));
         }
 
-        console.log(`[Ocean ${name}] coastThreshold=${coastThreshold}, warmthRange=${warmthRange}, p95=${p95.toExponential(3)}, oceanCells=${oceanCount}`);
+        console.log(`[Ocean ${name}] coastThreshold=${coastThreshold}, warmthRange=${warmthRange}, p95Sq=${p95Sq.toExponential(3)}, oceanCells=${oceanCount}`);
         timing.push({ stage: `Ocean: warmth + normalize (${name})`, ms: performance.now() - t0 });
 
         result[`r_ocean_current_east_${name}`] = currentE;

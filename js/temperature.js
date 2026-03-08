@@ -81,6 +81,11 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
 
     const result = {};
 
+    // Pre-compute constants shared across seasons
+    const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
+    const oceanWarmthPasses = Math.max(4, Math.round(1400 / avgEdgeKm));
+    const plateCont = r_plateContinentality || r_continentality;
+
     const seasons = ['summer', 'winter'];
 
     for (const name of seasons) {
@@ -96,9 +101,6 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
         // Pre-compute diffused ocean warmth for coastal land influence
         // Use plate-based continentality for diffusion so warmth crosses
         // continental shelves and reaches further inland
-        const plateCont = r_plateContinentality || r_continentality;
-        const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
-        const oceanWarmthPasses = Math.max(4, Math.round(1400 / avgEdgeKm));
         const coastalWarmth = diffuseOceanWarmth(mesh, r_oceanWarmth, r_isLand, plateCont, oceanWarmthPasses);
 
         const temp = new Float32Array(numRegions);

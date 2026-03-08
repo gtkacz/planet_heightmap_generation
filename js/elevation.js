@@ -1145,15 +1145,31 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             return { ux, uy, uz, vx, vy, vz };
         };
 
-        const hsRandInt = makeRandInt(seed + 1001);
+        // Generate hotspot positions as random points on the unit sphere
+        // (resolution-independent) then find nearest region for plate lookup.
+        const hsPosRng = makeRng(seed + 1001);
+        const findNearestR = (px, py, pz) => {
+            let bestDot = -2, bestR = 0;
+            for (let r = 0; r < numRegions; r++) {
+                const dot = px * r_xyz[3*r] + py * r_xyz[3*r+1] + pz * r_xyz[3*r+2];
+                if (dot > bestDot) { bestDot = dot; bestR = r; }
+            }
+            return bestR;
+        };
         for (let h = 0; h < NUM_HOTSPOTS; h++) {
             const hStrength = DOME_STRENGTH * (0.4 + hsRng() * 1.2);
             const hSigma    = DOME_SIGMA * (0.4 + hsRng() * 1.2);
             const hDecay    = CHAIN_DECAY + (hsRng() - 0.5) * 0.35;
             const hLength   = Math.max(3, CHAIN_LENGTH + Math.round((hsRng() - 0.5) * 10));
 
-            const centerR = hsRandInt(numRegions);
-            const hx = r_xyz[3*centerR], hy = r_xyz[3*centerR+1], hz = r_xyz[3*centerR+2];
+            // Random point on unit sphere — same position regardless of numRegions
+            const theta = 2 * Math.PI * hsPosRng();
+            const cosPhiVal = 2 * hsPosRng() - 1;
+            const sinPhiVal = Math.sqrt(1 - cosPhiVal * cosPhiVal);
+            const hx = sinPhiVal * Math.cos(theta);
+            const hy = sinPhiVal * Math.sin(theta);
+            const hz = cosPhiVal;
+            const centerR = findNearestR(hx, hy, hz);
             const plate = r_plate[centerR];
             const pv = plateVec[plate];
             if (!pv) continue;
