@@ -24,45 +24,54 @@ let storedGrayscale = null;
 let storedWidth = 0;
 let storedHeight = 0;
 
+// ─── Default heightmap (Earth) ────────────────────────────────────
+
+function loadImageAsHeightmap(img, displayName) {
+    storedWidth = img.width;
+    storedHeight = img.height;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = img.width;
+    offscreen.height = img.height;
+    const offCtx = offscreen.getContext('2d');
+    offCtx.drawImage(img, 0, 0);
+    const previewW = Math.min(img.width, 400);
+    const previewH = Math.round(previewW * img.height / img.width);
+    previewCanvas.width = previewW;
+    previewCanvas.height = previewH;
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, previewW, previewH);
+    previewCanvas.style.display = 'block';
+    importDimsEl.textContent = `${img.width} × ${img.height}`;
+    importDimsEl.style.display = 'block';
+    const expectEl = document.getElementById('importExpect');
+    if (expectEl) expectEl.style.display = 'block';
+    const data = offCtx.getImageData(0, 0, img.width, img.height).data;
+    const numPx = img.width * img.height;
+    storedGrayscale = new Uint8Array(numPx);
+    for (let i = 0; i < numPx; i++) {
+        const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+        storedGrayscale[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    }
+    fileNameEl.textContent = displayName;
+    importBtn.disabled = false;
+}
+
+(function loadDefaultHeightmap() {
+    const img = new Image();
+    img.onload = () => {
+        loadImageAsHeightmap(img, 'Earth (default)');
+        importBtn.click();
+    };
+    img.src = 'assets/earth.png';
+})();
+
 fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    fileNameEl.textContent = file.name;
     const reader = new FileReader();
     reader.onload = (ev) => {
         const img = new Image();
-        img.onload = () => {
-            storedWidth = img.width;
-            storedHeight = img.height;
-            // Draw full-res to offscreen canvas for grayscale extraction
-            const offscreen = document.createElement('canvas');
-            offscreen.width = img.width;
-            offscreen.height = img.height;
-            const offCtx = offscreen.getContext('2d');
-            offCtx.drawImage(img, 0, 0);
-            // Draw scaled preview to visible canvas
-            const previewW = Math.min(img.width, 400);
-            const previewH = Math.round(previewW * img.height / img.width);
-            previewCanvas.width = previewW;
-            previewCanvas.height = previewH;
-            const ctx = previewCanvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, previewW, previewH);
-            previewCanvas.style.display = 'block';
-            importDimsEl.textContent = `${img.width} × ${img.height}`;
-            importDimsEl.style.display = 'block';
-            const expectEl = document.getElementById('importExpect');
-            if (expectEl) expectEl.style.display = 'block';
-            // Extract grayscale from RGBA via luminance — no normalization.
-            // Convention: black (0) = ocean, brighter = higher elevation.
-            const data = offCtx.getImageData(0, 0, img.width, img.height).data;
-            const numPx = img.width * img.height;
-            storedGrayscale = new Uint8Array(numPx);
-            for (let i = 0; i < numPx; i++) {
-                const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
-                storedGrayscale[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-            }
-            importBtn.disabled = false;
-        };
+        img.onload = () => loadImageAsHeightmap(img, file.name);
         img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
@@ -125,7 +134,7 @@ function initSliderTooltip(slider) {
 }
 
 // Wire sliders
-for (const [s, v] of [['sN','vN'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs']]) {
+for (const [s, v] of [['sN','vN'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs'],['sTmp','vTmp'],['sPrc','vPrc']]) {
     const slider = document.getElementById(s);
     if (!slider) continue;
     initSliderTooltip(slider);
@@ -134,6 +143,13 @@ for (const [s, v] of [['sN','vN'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr
             const detail = detailFromSlider(+e.target.value);
             document.getElementById(v).textContent = detail.toLocaleString();
             updateDetailWarning(detail);
+        } else if (s === 'sTmp') {
+            const val = +e.target.value;
+            document.getElementById(v).textContent = (val > 0 ? '+' : val === 0 ? '\u00b1' : '') + val + '\u00b0C';
+        } else if (s === 'sPrc') {
+            const val = +e.target.value;
+            const pct = Math.round(val * 50);
+            document.getElementById(v).textContent = (pct > 0 ? '+' : pct === 0 ? '\u00b1' : '') + pct + '%';
         } else {
             document.getElementById(v).textContent = e.target.value;
         }
@@ -141,6 +157,18 @@ for (const [s, v] of [['sN','vN'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr
             markReapplyPending();
         }
     });
+    // Climate sliders: recompute only on release (change), not every drag tick
+    if (s === 'sTmp' || s === 'sPrc') {
+        slider.addEventListener('change', () => {
+            if (!state.curData) return;
+            showBuildOverlay();
+            computeClimateViaWorker(onProgress, () => {
+                hideBuildOverlay();
+                updateMeshColors();
+                updateLegend(state.debugLayer);
+            });
+        });
+    }
 }
 
 // ─── Reapply ──────────────────────────────────────────────────────
@@ -947,6 +975,45 @@ window.addEventListener('resize', () => {
     canvas.addEventListener('mousemove', updateHoverInfo);
     canvas.addEventListener('mouseleave', () => { lastRegion = -1; hoverEl.style.display = 'none'; });
 })();
+
+// ─── Screenshot helper ────────────────────────────────────────────
+
+window.takePreview = function(width = 1200, height = 630) {
+    const savedW = renderer.domElement.width;
+    const savedH = renderer.domElement.height;
+    const savedAspect = camera.aspect;
+    const savedPixelRatio = renderer.getPixelRatio();
+
+    const hiddenEls = [];
+    for (const sel of ['#ui', '#topInfo', '#info', '#hoverInfo', '#helpBtn',
+                        '#editToggle', '#refreshFab', '#rebuildFab', '#mobileViewSwitch',
+                        '#buildOverlay', '#tutorialOverlay', '#exportOverlay', '#whatsNewOverlay']) {
+        const el = document.querySelector(sel);
+        if (el && el.style.display !== 'none') {
+            hiddenEls.push({ el, prev: el.style.display });
+            el.style.display = 'none';
+        }
+    }
+
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(1);
+    renderer.setSize(width, height);
+    renderer.render(scene, state.mapMode ? mapCamera : camera);
+
+    const link = document.createElement('a');
+    link.download = 'preview.png';
+    link.href = renderer.domElement.toDataURL('image/png');
+    link.click();
+
+    renderer.setPixelRatio(savedPixelRatio);
+    renderer.setSize(savedW / savedPixelRatio, savedH / savedPixelRatio);
+    camera.aspect = savedAspect;
+    camera.updateProjectionMatrix();
+    for (const { el, prev } of hiddenEls) el.style.display = prev;
+    renderer.render(scene, state.mapMode ? mapCamera : camera);
+    console.log('preview.png downloaded!');
+};
 
 // ─── Start ────────────────────────────────────────────────────────
 

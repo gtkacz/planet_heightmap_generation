@@ -550,6 +550,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             const shadowHops = Math.max(8, Math.round(2500 / avgEdgeKm));
             const shadowDecay = 1 - Math.pow(0.15, 1 / shadowHops);
             const shadowField = new Float32Array(rainShadow);
+            // Reusable ping-pong buffers for both shadow and windward passes
             let src = new Float32Array(shadowField);
             let dst = new Float32Array(numRegions);
             for (let iter = 0; iter < shadowHops; iter++) {
@@ -577,8 +578,9 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             const windwardHops = Math.max(6, Math.round(1500 / avgEdgeKm));
             const windwardDecay = 1 - Math.pow(0.25, 1 / windwardHops);
             const windwardField = new Float32Array(rainShadow);
-            src = new Float32Array(windwardField);
-            dst = new Float32Array(numRegions);
+            // Reuse ping-pong buffers from shadow pass
+            src.set(windwardField);
+            dst.fill(0);
             for (let iter = 0; iter < windwardHops; iter++) {
                 for (let r = 0; r < numRegions; r++) {
                     let dnVal = 0, dnW = 0;
