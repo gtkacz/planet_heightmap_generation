@@ -79,6 +79,82 @@ function landMaskColor(elevation) {
     return elevation > 0 ? [1, 1, 1] : [0, 0, 0];
 }
 
+// ── 16-bit grayscale PNG encoder ────────────────────────────────────
+// Produces a standard 16-bit grayscale PNG (bit depth 16, color type 0)
+// using the browser's CompressionStream API for zlib compression.
+
+const _crc32Table = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c;
+    }
+    return t;
+})();
+
+function _crc32(buf) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) crc = _crc32Table[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function _pngChunk(type, data) {
+    const chunk = new Uint8Array(4 + 4 + data.length + 4);
+    const dv = new DataView(chunk.buffer);
+    dv.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) chunk[4 + i] = type.charCodeAt(i);
+    chunk.set(data, 8);
+    dv.setUint32(8 + data.length, _crc32(chunk.subarray(4, 8 + data.length)));
+    return chunk;
+}
+
+async function encode16BitGrayscalePNG(width, height, data16) {
+    // IHDR: width, height, bit depth 16, color type 0 (grayscale)
+    const ihdr = new Uint8Array(13);
+    const iv = new DataView(ihdr.buffer);
+    iv.setUint32(0, width);
+    iv.setUint32(4, height);
+    ihdr[8] = 16; ihdr[9] = 0; // 16-bit grayscale
+
+    // Raw scanlines: filter byte (0=None) + width×2 bytes per row
+    const rowLen = 1 + width * 2;
+    const raw = new Uint8Array(height * rowLen);
+    for (let y = 0; y < height; y++) {
+        const off = y * rowLen;
+        raw[off] = 0; // filter: None
+        for (let x = 0; x < width; x++) {
+            const v = data16[y * width + x];
+            raw[off + 1 + x * 2] = (v >> 8) & 0xFF;
+            raw[off + 1 + x * 2 + 1] = v & 0xFF;
+        }
+    }
+
+    // Compress with zlib (CompressionStream 'deflate' = zlib format)
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter();
+    writer.write(raw);
+    writer.close();
+    const compData = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+
+    // Assemble PNG
+    const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const ihdrC = _pngChunk('IHDR', ihdr);
+    const idatC = _pngChunk('IDAT', compData);
+    const iendC = _pngChunk('IEND', new Uint8Array(0));
+
+    const png = new Uint8Array(sig.length + ihdrC.length + idatC.length + iendC.length);
+    let p = 0;
+    png.set(sig, p); p += sig.length;
+    png.set(ihdrC, p); p += ihdrC.length;
+    png.set(idatC, p); p += idatC.length;
+    png.set(iendC, p);
+
+    return new Blob([png], { type: 'image/png' });
+}
+
+// ────────────────────────────────────────────────────────────────────
+
 // Diverging color map: blue (negative) → white (zero) → red (positive)
 function debugValueToColor(v, minV, maxV) {
     const range = Math.max(Math.abs(minV), Math.abs(maxV)) || 1;
@@ -1758,6 +1834,7 @@ export async function exportMap(type, width, onProgress) {
     const height = width / 2;
     const { mesh, r_xyz, t_xyz, r_elevation } = state.curData;
     const isBW = type === 'heightmap' || type === 'landheightmap' || type === 'landmask';
+    const is16Bit = type === 'heightmap' || type === 'landheightmap';
 
     // Climate-dependent export types (Satellite / Köppen)
     const debugLayers = state.curData.debugLayers;
@@ -1765,9 +1842,22 @@ export async function exportMap(type, width, onProgress) {
     const biomeSmoothed = (type === 'biome' && koppenArr) ? getCachedBiomeSmoothed(mesh, koppenArr, r_elevation) : null;
 
     // Build map triangles (same projection as buildMapMesh, chosen coloring, no grid)
-    const { numSides } = mesh;
+    const { numSides, numTriangles } = mesh;
     const PI = Math.PI;
     const sx = 2 / PI;
+
+    // For heightmap exports, precompute averaged elevation at each triangle center
+    // (each triangle touches 3 regions). This enables smooth Gouraud interpolation
+    // instead of flat hex-cell shading.
+    let t_elev;
+    if (is16Bit) {
+        t_elev = new Float32Array(numTriangles);
+        const tris = mesh.triangles;
+        for (let t = 0; t < numTriangles; t++) {
+            const s0 = 3 * t;
+            t_elev[t] = (r_elevation[tris[s0]] + r_elevation[tris[s0 + 1]] + r_elevation[tris[s0 + 2]]) / 3;
+        }
+    }
 
     const posArr = new Float32Array(numSides * 18);
     const colArr = new Float32Array(numSides * 18);
@@ -1778,19 +1868,31 @@ export async function exportMap(type, width, onProgress) {
         const ot = mesh.s_outer_t(s);
         const br = mesh.s_begin_r(s);
 
-        let cr, cg, cb;
-        if (type === 'landmask') {
-            [cr, cg, cb] = landMaskColor(r_elevation[br]);
-        } else if (type === 'landheightmap') {
-            [cr, cg, cb] = landHeightmapColor(r_elevation[br]);
-        } else if (type === 'heightmap') {
-            [cr, cg, cb] = heightmapColor(r_elevation[br]);
-        } else if (type === 'biome' && biomeSmoothed) {
-            cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
-        } else if (type === 'koppen' && koppenArr) {
-            [cr, cg, cb] = koppenColor(koppenArr[br]);
+        // Per-vertex colors: c0 = inner_t vertex, c1 = outer_t vertex, c2 = region vertex
+        let c0r, c0g, c0b, c1r, c1g, c1b, c2r, c2g, c2b;
+        if (is16Bit) {
+            // Smooth heightmap: triangle-center vertices use averaged elevation
+            const colorFn = type === 'landheightmap' ? landHeightmapColor : heightmapColor;
+            const v0 = colorFn(t_elev[it])[0];
+            const v1 = colorFn(t_elev[ot])[0];
+            const v2 = colorFn(r_elevation[br])[0];
+            c0r = c0g = c0b = v0;
+            c1r = c1g = c1b = v1;
+            c2r = c2g = c2b = v2;
         } else {
-            [cr, cg, cb] = elevationToColor(r_elevation[br]);
+            let cr, cg, cb;
+            if (type === 'landmask') {
+                [cr, cg, cb] = landMaskColor(r_elevation[br]);
+            } else if (type === 'biome' && biomeSmoothed) {
+                cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
+            } else if (type === 'koppen' && koppenArr) {
+                [cr, cg, cb] = koppenColor(koppenArr[br]);
+            } else {
+                [cr, cg, cb] = elevationToColor(r_elevation[br]);
+            }
+            c0r = c1r = c2r = cr;
+            c0g = c1g = c2g = cg;
+            c0b = c1b = c2b = cb;
         }
 
         const x0 = t_xyz[3*it], y0 = t_xyz[3*it+1], z0 = t_xyz[3*it+2];
@@ -1817,27 +1919,27 @@ export async function exportMap(type, width, onProgress) {
             posArr[off]   = clx(lon0*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx(lon1*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx(lon2*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             triCount++;
 
             off = triCount * 9;
             posArr[off]   = clx((lon0-2*PI)*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx((lon1-2*PI)*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx((lon2-2*PI)*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             triCount++;
         } else {
             const off = triCount * 9;
             posArr[off]   = clx(lon0*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx(lon1*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx(lon2*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             triCount++;
         }
     }
@@ -1863,10 +1965,16 @@ export async function exportMap(type, width, onProgress) {
     const tilesY = Math.ceil(height / tileH);
     const totalTiles = tilesX * tilesY;
 
-    const cvs = document.createElement('canvas');
-    cvs.width = width;
-    cvs.height = height;
-    const ctx = cvs.getContext('2d');
+    // 16-bit heightmaps write to a Uint16Array; other types use a canvas
+    let cvs, ctx, img16;
+    if (is16Bit) {
+        img16 = new Uint16Array(width * height);
+    } else {
+        cvs = document.createElement('canvas');
+        cvs.width = width;
+        cvs.height = height;
+        ctx = cvs.getContext('2d');
+    }
 
     let tilesDone = 0;
     for (let ty = 0; ty < tilesY; ty++) {
@@ -1886,33 +1994,58 @@ export async function exportMap(type, width, onProgress) {
             cam.position.set(0, 0, 5);
             cam.lookAt(0, 0, 0);
 
-            const renderTarget = new THREE.WebGLRenderTarget(pw, ph);
-            renderer.setRenderTarget(renderTarget);
-            renderer.render(offScene, cam);
+            if (is16Bit) {
+                // Float render target preserves full precision of elevation values
+                const renderTarget = new THREE.WebGLRenderTarget(pw, ph, { type: THREE.FloatType });
+                const prevCS = renderer.outputColorSpace;
+                renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+                renderer.setRenderTarget(renderTarget);
+                renderer.render(offScene, cam);
+                renderer.outputColorSpace = prevCS;
 
-            const pixels = new Uint8Array(pw * ph * 4);
-            renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, pixels);
-            renderer.setRenderTarget(null);
-            renderTarget.dispose();
+                const floatPixels = new Float32Array(pw * ph * 4);
+                renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, floatPixels);
+                renderer.setRenderTarget(null);
+                renderTarget.dispose();
 
-            // Write tile to canvas (flip rows + sRGB gamma)
-            const imageData = ctx.createImageData(pw, ph);
-            const out = imageData.data;
-            for (let y = 0; y < ph; y++) {
-                const src = (ph - 1 - y) * pw * 4;
-                const dst = y * pw * 4;
-                for (let x = 0; x < pw; x++) {
-                    const si = src + x * 4, di = dst + x * 4;
-                    for (let c = 0; c < 3; c++) {
-                        const v = pixels[si + c] / 255;
-                        out[di + c] = (v <= 0.0031308
-                            ? v * 12.92
-                            : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255 + 0.5 | 0;
+                // Write to img16 (flip rows, extract R channel → 16-bit)
+                for (let y = 0; y < ph; y++) {
+                    const srcRow = (ph - 1 - y) * pw;
+                    const dstRow = (py0 + y) * width + px0;
+                    for (let x = 0; x < pw; x++) {
+                        const v = floatPixels[(srcRow + x) * 4]; // R channel
+                        img16[dstRow + x] = Math.max(0, Math.min(65535, (v * 65535 + 0.5) | 0));
                     }
-                    out[di + 3] = pixels[si + 3];
                 }
+            } else {
+                const renderTarget = new THREE.WebGLRenderTarget(pw, ph);
+                renderer.setRenderTarget(renderTarget);
+                renderer.render(offScene, cam);
+
+                const pixels = new Uint8Array(pw * ph * 4);
+                renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, pixels);
+                renderer.setRenderTarget(null);
+                renderTarget.dispose();
+
+                // Write tile to canvas (flip rows + sRGB gamma)
+                const imageData = ctx.createImageData(pw, ph);
+                const out = imageData.data;
+                for (let y = 0; y < ph; y++) {
+                    const src = (ph - 1 - y) * pw * 4;
+                    const dst = y * pw * 4;
+                    for (let x = 0; x < pw; x++) {
+                        const si = src + x * 4, di = dst + x * 4;
+                        for (let c = 0; c < 3; c++) {
+                            const v = pixels[si + c] / 255;
+                            out[di + c] = (v <= 0.0031308
+                                ? v * 12.92
+                                : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255 + 0.5 | 0;
+                        }
+                        out[di + 3] = pixels[si + 3];
+                    }
+                }
+                ctx.putImageData(imageData, px0, py0);
             }
-            ctx.putImageData(imageData, px0, py0);
 
             tilesDone++;
             if (onProgress) onProgress(tilesDone / totalTiles * 80, 'Rendering...');
@@ -1931,22 +2064,32 @@ export async function exportMap(type, width, onProgress) {
     const code = location.hash.replace(/^#/, '').trim() || (state.curData ? state.curData.seed : '');
     const filename = exportFilename(type, code);
 
-    await new Promise(resolve => {
-        cvs.toBlob(blob => {
-            if (blob) {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(url), 5000);
-            }
-            // Release canvas bitmap memory so sequential exports don't accumulate
-            cvs.width = 0;
-            cvs.height = 0;
-            resolve();
-        }, 'image/png');
-    });
+    if (is16Bit) {
+        const blob = await encode16BitGrayscalePNG(width, height, img16);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } else {
+        await new Promise(resolve => {
+            cvs.toBlob(blob => {
+                if (blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                }
+                // Release canvas bitmap memory so sequential exports don't accumulate
+                cvs.width = 0;
+                cvs.height = 0;
+                resolve();
+            }, 'image/png');
+        });
+    }
 }
 
 function exportFilename(type, seed) {
@@ -1972,14 +2115,24 @@ export async function exportMapBatch(types, width, onProgress) {
     const debugLayers = state.curData.debugLayers;
     const koppenArr = debugLayers && debugLayers.koppen;
     const biomeSmoothed = koppenArr ? getCachedBiomeSmoothed(mesh, koppenArr, r_elevation) : null;
-    const { numSides } = mesh;
+    const { numSides, numTriangles } = mesh;
     const PI = Math.PI;
     const sx = 2 / PI;
 
-    // Build positions once and record per-triangle region indices.
+    // Precompute averaged elevation at each triangle center for smooth heightmap exports
+    const t_elev = new Float32Array(numTriangles);
+    const tris = mesh.triangles;
+    for (let t = 0; t < numTriangles; t++) {
+        const s0 = 3 * t;
+        t_elev[t] = (r_elevation[tris[s0]] + r_elevation[tris[s0 + 1]] + r_elevation[tris[s0 + 2]]) / 3;
+    }
+
+    // Build positions once and record per-triangle vertex topology.
     // Positions are reused across all export types — only colors change.
     const posArr = new Float32Array(numSides * 18);
     const triRegions = new Uint32Array(numSides * 2); // max 2 tris per side (wrapping)
+    const triInnerT = new Uint32Array(numSides * 2);  // inner triangle index per output tri
+    const triOuterT = new Uint32Array(numSides * 2);  // outer triangle index per output tri
     let triCount = 0;
 
     for (let s = 0; s < numSides; s++) {
@@ -2011,21 +2164,21 @@ export async function exportMapBatch(types, width, onProgress) {
             posArr[off]   = clx(lon0*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx(lon1*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx(lon2*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            triRegions[triCount] = br;
+            triRegions[triCount] = br; triInnerT[triCount] = it; triOuterT[triCount] = ot;
             triCount++;
 
             off = triCount * 9;
             posArr[off]   = clx((lon0-2*PI)*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx((lon1-2*PI)*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx((lon2-2*PI)*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            triRegions[triCount] = br;
+            triRegions[triCount] = br; triInnerT[triCount] = it; triOuterT[triCount] = ot;
             triCount++;
         } else {
             const off = triCount * 9;
             posArr[off]   = clx(lon0*sx); posArr[off+1] = cly(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = clx(lon1*sx); posArr[off+4] = cly(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = clx(lon2*sx); posArr[off+7] = cly(lat2*sx); posArr[off+8] = 0;
-            triRegions[triCount] = br;
+            triRegions[triCount] = br; triInnerT[triCount] = it; triOuterT[triCount] = ot;
             triCount++;
         }
     }
@@ -2048,10 +2201,11 @@ export async function exportMapBatch(types, width, onProgress) {
     const code = location.hash.replace(/^#/, '').trim() || (state.curData ? state.curData.seed : '');
     const total = types.length;
 
-    // Pre-allocate pixel readback buffer (reused across all tiles and types)
+    // Pre-allocate pixel readback buffer (reused across all tiles and 8-bit types)
     const pixelBuf = new Uint8Array(tileW * tileH * 4);
+    const floatBuf = new Float32Array(tileW * tileH * 4);
 
-    // Single canvas reused across all export types (avoids repeated bitmap allocation)
+    // Single canvas reused across 8-bit export types (avoids repeated bitmap allocation)
     const cvs = document.createElement('canvas');
     cvs.width = width;
     cvs.height = height;
@@ -2060,30 +2214,43 @@ export async function exportMapBatch(types, width, onProgress) {
     for (let ti = 0; ti < total; ti++) {
         const { type, label } = types[ti];
         const isBW = type === 'heightmap' || type === 'landheightmap' || type === 'landmask';
+        const is16Bit = type === 'heightmap' || type === 'landheightmap';
         offScene.background = isBW ? new THREE.Color(0x000000) : new THREE.Color(0x1a1a2e);
+
+        // 16-bit heightmaps write to a Uint16Array instead of the canvas
+        let img16;
+        if (is16Bit) img16 = new Uint16Array(width * height);
 
         // Build fresh color array for this type
         const colData = new Float32Array(triCount * 9);
         for (let i = 0; i < triCount; i++) {
             const br = triRegions[i];
-            let cr, cg, cb;
-            if (type === 'landmask') {
-                [cr, cg, cb] = landMaskColor(r_elevation[br]);
-            } else if (type === 'landheightmap') {
-                [cr, cg, cb] = landHeightmapColor(r_elevation[br]);
-            } else if (type === 'heightmap') {
-                [cr, cg, cb] = heightmapColor(r_elevation[br]);
-            } else if (type === 'biome' && biomeSmoothed) {
-                cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
-            } else if (type === 'koppen' && koppenArr) {
-                [cr, cg, cb] = koppenColor(koppenArr[br]);
-            } else {
-                [cr, cg, cb] = elevationToColor(r_elevation[br]);
-            }
             const off = i * 9;
-            colData[off] = colData[off+3] = colData[off+6] = cr;
-            colData[off+1] = colData[off+4] = colData[off+7] = cg;
-            colData[off+2] = colData[off+5] = colData[off+8] = cb;
+
+            if (is16Bit) {
+                // Smooth heightmap: triangle-center vertices use averaged elevation
+                const colorFn = type === 'landheightmap' ? landHeightmapColor : heightmapColor;
+                const v0 = colorFn(t_elev[triInnerT[i]])[0];
+                const v1 = colorFn(t_elev[triOuterT[i]])[0];
+                const v2 = colorFn(r_elevation[br])[0];
+                colData[off] = colData[off+1] = colData[off+2] = v0;
+                colData[off+3] = colData[off+4] = colData[off+5] = v1;
+                colData[off+6] = colData[off+7] = colData[off+8] = v2;
+            } else {
+                let cr, cg, cb;
+                if (type === 'landmask') {
+                    [cr, cg, cb] = landMaskColor(r_elevation[br]);
+                } else if (type === 'biome' && biomeSmoothed) {
+                    cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
+                } else if (type === 'koppen' && koppenArr) {
+                    [cr, cg, cb] = koppenColor(koppenArr[br]);
+                } else {
+                    [cr, cg, cb] = elevationToColor(r_elevation[br]);
+                }
+                colData[off] = colData[off+3] = colData[off+6] = cr;
+                colData[off+1] = colData[off+4] = colData[off+7] = cg;
+                colData[off+2] = colData[off+5] = colData[off+8] = cb;
+            }
         }
 
         // Fresh geometry + mesh per type — avoids stale GPU buffer issues
@@ -2095,7 +2262,7 @@ export async function exportMapBatch(types, width, onProgress) {
         const mapMesh = new THREE.Mesh(geo, mat);
         offScene.add(mapMesh);
 
-        // Render tiles to canvas
+        // Render tiles
         let tilesDone = 0;
         for (let ty = 0; ty < tilesY; ty++) {
             for (let tx = 0; tx < tilesX; tx++) {
@@ -2113,32 +2280,53 @@ export async function exportMapBatch(types, width, onProgress) {
                 cam.position.set(0, 0, 5);
                 cam.lookAt(0, 0, 0);
 
-                const renderTarget = new THREE.WebGLRenderTarget(pw, ph);
-                renderer.setRenderTarget(renderTarget);
-                renderer.render(offScene, cam);
+                if (is16Bit) {
+                    const renderTarget = new THREE.WebGLRenderTarget(pw, ph, { type: THREE.FloatType });
+                    const prevCS = renderer.outputColorSpace;
+                    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+                    renderer.setRenderTarget(renderTarget);
+                    renderer.render(offScene, cam);
+                    renderer.outputColorSpace = prevCS;
 
-                // Reuse pre-allocated buffer (always large enough for any tile)
-                renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, pixelBuf);
-                renderer.setRenderTarget(null);
-                renderTarget.dispose();
+                    renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, floatBuf);
+                    renderer.setRenderTarget(null);
+                    renderTarget.dispose();
 
-                const imageData = ctx.createImageData(pw, ph);
-                const out = imageData.data;
-                for (let y = 0; y < ph; y++) {
-                    const src = (ph - 1 - y) * pw * 4;
-                    const dst = y * pw * 4;
-                    for (let x = 0; x < pw; x++) {
-                        const si = src + x * 4, di = dst + x * 4;
-                        for (let c = 0; c < 3; c++) {
-                            const v = pixelBuf[si + c] / 255;
-                            out[di + c] = (v <= 0.0031308
-                                ? v * 12.92
-                                : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255 + 0.5 | 0;
+                    for (let y = 0; y < ph; y++) {
+                        const srcRow = (ph - 1 - y) * pw;
+                        const dstRow = (py0 + y) * width + px0;
+                        for (let x = 0; x < pw; x++) {
+                            const v = floatBuf[(srcRow + x) * 4];
+                            img16[dstRow + x] = Math.max(0, Math.min(65535, (v * 65535 + 0.5) | 0));
                         }
-                        out[di + 3] = pixelBuf[si + 3];
                     }
+                } else {
+                    const renderTarget = new THREE.WebGLRenderTarget(pw, ph);
+                    renderer.setRenderTarget(renderTarget);
+                    renderer.render(offScene, cam);
+
+                    renderer.readRenderTargetPixels(renderTarget, 0, 0, pw, ph, pixelBuf);
+                    renderer.setRenderTarget(null);
+                    renderTarget.dispose();
+
+                    const imageData = ctx.createImageData(pw, ph);
+                    const out = imageData.data;
+                    for (let y = 0; y < ph; y++) {
+                        const src = (ph - 1 - y) * pw * 4;
+                        const dst = y * pw * 4;
+                        for (let x = 0; x < pw; x++) {
+                            const si = src + x * 4, di = dst + x * 4;
+                            for (let c = 0; c < 3; c++) {
+                                const v = pixelBuf[si + c] / 255;
+                                out[di + c] = (v <= 0.0031308
+                                    ? v * 12.92
+                                    : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255 + 0.5 | 0;
+                            }
+                            out[di + 3] = pixelBuf[si + 3];
+                        }
+                    }
+                    ctx.putImageData(imageData, px0, py0);
                 }
-                ctx.putImageData(imageData, px0, py0);
 
                 tilesDone++;
                 if (onProgress) onProgress(tilesDone / totalTiles * 80, `Exporting ${label} (${ti+1}/${total}): Rendering...`);
@@ -2156,19 +2344,29 @@ export async function exportMapBatch(types, width, onProgress) {
         await new Promise(r => setTimeout(r, 0));
 
         const filename = exportFilename(type, code);
-        await new Promise(resolve => {
-            cvs.toBlob(blob => {
-                if (blob) {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(url), 5000);
-                }
-                resolve();
-            }, 'image/png');
-        });
+        if (is16Bit) {
+            const blob = await encode16BitGrayscalePNG(width, height, img16);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        } else {
+            await new Promise(resolve => {
+                cvs.toBlob(blob => {
+                    if (blob) {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    }
+                    resolve();
+                }, 'image/png');
+            });
+        }
 
         // Pause between exports to let the browser reclaim memory
         await new Promise(r => setTimeout(r, 100));
