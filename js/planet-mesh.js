@@ -325,6 +325,7 @@ export function buildMapMesh() {
     }
 
     const biomeSmoothed = (isBiome && koppenArr) ? getCachedBiomeSmoothed(mesh, koppenArr, r_elevation) : null;
+    const isSmooth = isHeightmap || isLandHeightmap;
 
     // Upper-bound allocation: wrapping sides produce 2 triangles, non-wrapping 1.
     // Wraps are rare, so 2× is a conservative upper bound; trimmed after the loop.
@@ -339,43 +340,54 @@ export function buildMapMesh() {
         const br = mesh.s_begin_r(s);
 
         const re = r_elevation[br] - waterLevel;
-        let cr, cg, cb;
-        if (isBiome && biomeSmoothed) {
-            cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
-        } else if (isCont && contArr) {
-            [cr, cg, cb] = continentalityColor(contArr[br]);
-        } else if (isKoppen && koppenArr) {
-            [cr, cg, cb] = koppenColor(koppenArr[br]);
-        } else if (isTemp && tempArr) {
-            [cr, cg, cb] = temperatureColor(tempArr[br]);
-        } else if (isPrecip && precipArr) {
-            [cr, cg, cb] = precipitationColor(precipArr[br]);
-        } else if (isRainShadow && rainShadowArr) {
-            [cr, cg, cb] = rainShadowColor(rainShadowArr[br]);
-        } else if (isOceanCurrent && oceanWarmth && oceanSpeed) {
-            [cr, cg, cb] = oceanCurrentColor(oceanWarmth[br], oceanSpeed[br], r_elevation[br] <= 0);
-        } else if (isOceanCurrent) {
-            // Ocean layer selected but data missing — show magenta so it's obvious
-            cr = 0.5; cg = 0; cb = 0.5;
-        } else if (isLandHeightmap) {
-            [cr, cg, cb] = landHeightmapColor(r_elevation[br]);
-        } else if (isHeightmap) {
-            [cr, cg, cb] = heightmapColor(r_elevation[br]);
-        } else if (dbgArr) {
-            [cr, cg, cb] = debugValueToColor(dbgArr[br], dbgMin, dbgMax);
-        } else if (showPlates) {
-            const pc = state.plateColors[r_plate[br]] || new THREE.Color(0.3,0.3,0.3);
-            cr = pc.r; cg = pc.g; cb = pc.b;
-        } else if (showStress) {
-            const sv = r_stress ? r_stress[br] : 0;
-            if (sv > 0.5)                     { cr=0.9; cg=0.1+sv*0.3; cb=0.1; }
-            else if (sv > 0.1)                { cr=0.9; cg=0.5+sv*0.5; cb=0.2; }
-            else if (mountain_r.has(br))      { cr=0.8; cg=0.4; cb=0.1; }
-            else if (coastline_r.has(br))     { cr=0.9; cg=0.9; cb=0.2; }
-            else if (ocean_r.has(br))         { cr=0.1; cg=0.2; cb=0.7; }
-            else                              { cr=0.15; cg=0.15; cb=0.18; }
+
+        // Per-vertex colors for smooth heightmaps, flat for everything else
+        let c0r, c0g, c0b, c1r, c1g, c1b, c2r, c2g, c2b;
+        if (isSmooth) {
+            const colorFn = isLandHeightmap ? landHeightmapColor : heightmapColor;
+            const v0 = colorFn(t_elevation[it])[0];
+            const v1 = colorFn(t_elevation[ot])[0];
+            const v2 = colorFn(r_elevation[br])[0];
+            c0r = c0g = c0b = v0;
+            c1r = c1g = c1b = v1;
+            c2r = c2g = c2b = v2;
         } else {
-            [cr, cg, cb] = elevationToColor(re);
+            let cr, cg, cb;
+            if (isBiome && biomeSmoothed) {
+                cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
+            } else if (isCont && contArr) {
+                [cr, cg, cb] = continentalityColor(contArr[br]);
+            } else if (isKoppen && koppenArr) {
+                [cr, cg, cb] = koppenColor(koppenArr[br]);
+            } else if (isTemp && tempArr) {
+                [cr, cg, cb] = temperatureColor(tempArr[br]);
+            } else if (isPrecip && precipArr) {
+                [cr, cg, cb] = precipitationColor(precipArr[br]);
+            } else if (isRainShadow && rainShadowArr) {
+                [cr, cg, cb] = rainShadowColor(rainShadowArr[br]);
+            } else if (isOceanCurrent && oceanWarmth && oceanSpeed) {
+                [cr, cg, cb] = oceanCurrentColor(oceanWarmth[br], oceanSpeed[br], r_elevation[br] <= 0);
+            } else if (isOceanCurrent) {
+                cr = 0.5; cg = 0; cb = 0.5;
+            } else if (dbgArr) {
+                [cr, cg, cb] = debugValueToColor(dbgArr[br], dbgMin, dbgMax);
+            } else if (showPlates) {
+                const pc = state.plateColors[r_plate[br]] || new THREE.Color(0.3,0.3,0.3);
+                cr = pc.r; cg = pc.g; cb = pc.b;
+            } else if (showStress) {
+                const sv = r_stress ? r_stress[br] : 0;
+                if (sv > 0.5)                     { cr=0.9; cg=0.1+sv*0.3; cb=0.1; }
+                else if (sv > 0.1)                { cr=0.9; cg=0.5+sv*0.5; cb=0.2; }
+                else if (mountain_r.has(br))      { cr=0.8; cg=0.4; cb=0.1; }
+                else if (coastline_r.has(br))     { cr=0.9; cg=0.9; cb=0.2; }
+                else if (ocean_r.has(br))         { cr=0.1; cg=0.2; cb=0.7; }
+                else                              { cr=0.15; cg=0.15; cb=0.18; }
+            } else {
+                [cr, cg, cb] = elevationToColor(re);
+            }
+            c0r = c1r = c2r = cr;
+            c0g = c1g = c2g = cg;
+            c0b = c1b = c2b = cb;
         }
 
         const x0 = t_xyz[3*it], y0 = t_xyz[3*it+1], z0 = t_xyz[3*it+2];
@@ -404,9 +416,9 @@ export function buildMapMesh() {
             posArr[off]   = cx(lon0*sx); posArr[off+1] = cy(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = cx(lon1*sx); posArr[off+4] = cy(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = cx(lon2*sx); posArr[off+7] = cy(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             faceToSide[triCount] = s;
             triCount++;
 
@@ -414,9 +426,9 @@ export function buildMapMesh() {
             posArr[off]   = cx((lon0-2*PI)*sx); posArr[off+1] = cy(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = cx((lon1-2*PI)*sx); posArr[off+4] = cy(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = cx((lon2-2*PI)*sx); posArr[off+7] = cy(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             faceToSide[triCount] = s;
             triCount++;
         } else {
@@ -424,9 +436,9 @@ export function buildMapMesh() {
             posArr[off]   = cx(lon0*sx); posArr[off+1] = cy(lat0*sx); posArr[off+2] = 0;
             posArr[off+3] = cx(lon1*sx); posArr[off+4] = cy(lat1*sx); posArr[off+5] = 0;
             posArr[off+6] = cx(lon2*sx); posArr[off+7] = cy(lat2*sx); posArr[off+8] = 0;
-            colArr[off]=cr; colArr[off+1]=cg; colArr[off+2]=cb;
-            colArr[off+3]=cr; colArr[off+4]=cg; colArr[off+5]=cb;
-            colArr[off+6]=cr; colArr[off+7]=cg; colArr[off+8]=cb;
+            colArr[off]=c0r; colArr[off+1]=c0g; colArr[off+2]=c0b;
+            colArr[off+3]=c1r; colArr[off+4]=c1g; colArr[off+5]=c1b;
+            colArr[off+6]=c2r; colArr[off+7]=c2g; colArr[off+8]=c2b;
             faceToSide[triCount] = s;
             triCount++;
         }
@@ -738,6 +750,9 @@ export function buildMesh() {
     const V = 0.04;
     const pos = new Float32Array(numSides * 9);
     const col = new Float32Array(numSides * 9);
+    const isSmooth = isHeightmap || isLandHeightmap;
+    // Track per-side winding swaps so updateMeshColors can assign per-vertex colors correctly
+    const sideSwapped = new Uint8Array(numSides);
 
     const biomeSmoothed = (isBiome && koppenArr) ? getCachedBiomeSmoothed(mesh, koppenArr, r_elevation) : null;
 
@@ -771,60 +786,75 @@ export function buildMesh() {
         const nx = e1y*e2z - e1z*e2y;
         const ny = e1z*e2x - e1x*e2z;
         const nz = e1x*e2y - e1y*e2x;
-        const cx = (v0x+v1x+v2x)/3, cy = (v0y+v1y+v2y)/3, cz = (v0z+v1z+v2z)/3;
-        if (nx*cx + ny*cy + nz*cz < 0) {
+        const cnx = (v0x+v1x+v2x)/3, cny = (v0y+v1y+v2y)/3, cnz = (v0z+v1z+v2z)/3;
+        const swapped = nx*cnx + ny*cny + nz*cnz < 0;
+        if (swapped) {
             let tx, ty, tz;
             tx=v1x; ty=v1y; tz=v1z;
             v1x=v2x; v1y=v2y; v1z=v2z;
             v2x=tx; v2y=ty; v2z=tz;
         }
+        sideSwapped[s] = swapped ? 1 : 0;
 
         pos[off]   = v0x; pos[off+1] = v0y; pos[off+2] = v0z;
         pos[off+3] = v1x; pos[off+4] = v1y; pos[off+5] = v1z;
         pos[off+6] = v2x; pos[off+7] = v2y; pos[off+8] = v2z;
 
-        let cr, cg, cb;
-        if (isBiome && biomeSmoothed) {
-            cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
-        } else if (isCont && contArr) {
-            [cr, cg, cb] = continentalityColor(contArr[br]);
-        } else if (isKoppen && koppenArr) {
-            [cr, cg, cb] = koppenColor(koppenArr[br]);
-        } else if (isTemp && tempArr) {
-            [cr, cg, cb] = temperatureColor(tempArr[br]);
-        } else if (isPrecip && precipArr) {
-            [cr, cg, cb] = precipitationColor(precipArr[br]);
-        } else if (isRainShadow && rainShadowArr) {
-            [cr, cg, cb] = rainShadowColor(rainShadowArr[br]);
-        } else if (isOceanCurrent && oceanWarmth && oceanSpeed) {
-            [cr, cg, cb] = oceanCurrentColor(oceanWarmth[br], oceanSpeed[br], r_elevation[br] <= 0);
-        } else if (isOceanCurrent) {
-            // Ocean layer selected but data missing — show magenta so it's obvious
-            cr = 0.5; cg = 0; cb = 0.5;
-        } else if (isLandHeightmap) {
-            [cr, cg, cb] = landHeightmapColor(r_elevation[br]);
-        } else if (isHeightmap) {
-            [cr, cg, cb] = heightmapColor(r_elevation[br]);
-        } else if (dbgArr) {
-            [cr, cg, cb] = debugValueToColor(dbgArr[br], dbgMin, dbgMax);
-        } else if (showPlates) {
-            const pc = state.plateColors[r_plate[br]] || new THREE.Color(0.3,0.3,0.3);
-            cr = pc.r; cg = pc.g; cb = pc.b;
-        } else if (showStress) {
-            const sv = r_stress ? r_stress[br] : 0;
-            if (sv > 0.5)                     { cr=0.9; cg=0.1+sv*0.3; cb=0.1; }
-            else if (sv > 0.1)                { cr=0.9; cg=0.5+sv*0.5; cb=0.2; }
-            else if (mountain_r.has(br))      { cr=0.8; cg=0.4; cb=0.1; }
-            else if (coastline_r.has(br))     { cr=0.9; cg=0.9; cb=0.2; }
-            else if (ocean_r.has(br))         { cr=0.1; cg=0.2; cb=0.7; }
-            else                              { cr=0.15; cg=0.15; cb=0.18; }
+        if (isSmooth) {
+            // Smooth heightmap: per-vertex colors from averaged triangle elevations
+            const colorFn = isLandHeightmap ? landHeightmapColor : heightmapColor;
+            const c0 = colorFn(t_elevation[it])[0];  // inner_t (vertex 0, never swapped)
+            const cOt = colorFn(t_elevation[ot])[0];  // outer_t
+            const cBr = colorFn(r_elevation[br])[0];  // begin_r
+            // After winding fix, v1/v2 may have swapped (outer_t ↔ begin_r)
+            const c1 = swapped ? cBr : cOt;
+            const c2 = swapped ? cOt : cBr;
+            col[off] = col[off+1] = col[off+2] = c0;
+            col[off+3] = col[off+4] = col[off+5] = c1;
+            col[off+6] = col[off+7] = col[off+8] = c2;
         } else {
-            [cr, cg, cb] = elevationToColor(re);
-        }
-        for (let j = 0; j < 3; j++) {
-            col[off+j*3]   = cr;
-            col[off+j*3+1] = cg;
-            col[off+j*3+2] = cb;
+            let cr, cg, cb;
+            if (isBiome && biomeSmoothed) {
+                cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
+            } else if (isCont && contArr) {
+                [cr, cg, cb] = continentalityColor(contArr[br]);
+            } else if (isKoppen && koppenArr) {
+                [cr, cg, cb] = koppenColor(koppenArr[br]);
+            } else if (isTemp && tempArr) {
+                [cr, cg, cb] = temperatureColor(tempArr[br]);
+            } else if (isPrecip && precipArr) {
+                [cr, cg, cb] = precipitationColor(precipArr[br]);
+            } else if (isRainShadow && rainShadowArr) {
+                [cr, cg, cb] = rainShadowColor(rainShadowArr[br]);
+            } else if (isOceanCurrent && oceanWarmth && oceanSpeed) {
+                [cr, cg, cb] = oceanCurrentColor(oceanWarmth[br], oceanSpeed[br], r_elevation[br] <= 0);
+            } else if (isOceanCurrent) {
+                cr = 0.5; cg = 0; cb = 0.5;
+            } else if (isLandHeightmap) {
+                [cr, cg, cb] = landHeightmapColor(r_elevation[br]);
+            } else if (isHeightmap) {
+                [cr, cg, cb] = heightmapColor(r_elevation[br]);
+            } else if (dbgArr) {
+                [cr, cg, cb] = debugValueToColor(dbgArr[br], dbgMin, dbgMax);
+            } else if (showPlates) {
+                const pc = state.plateColors[r_plate[br]] || new THREE.Color(0.3,0.3,0.3);
+                cr = pc.r; cg = pc.g; cb = pc.b;
+            } else if (showStress) {
+                const sv = r_stress ? r_stress[br] : 0;
+                if (sv > 0.5)                     { cr=0.9; cg=0.1+sv*0.3; cb=0.1; }
+                else if (sv > 0.1)                { cr=0.9; cg=0.5+sv*0.5; cb=0.2; }
+                else if (mountain_r.has(br))      { cr=0.8; cg=0.4; cb=0.1; }
+                else if (coastline_r.has(br))     { cr=0.9; cg=0.9; cb=0.2; }
+                else if (ocean_r.has(br))         { cr=0.1; cg=0.2; cb=0.7; }
+                else                              { cr=0.15; cg=0.15; cb=0.18; }
+            } else {
+                [cr, cg, cb] = elevationToColor(re);
+            }
+            for (let j = 0; j < 3; j++) {
+                col[off+j*3]   = cr;
+                col[off+j*3+1] = cg;
+                col[off+j*3+2] = cb;
+            }
         }
     }
 
@@ -834,6 +864,7 @@ export function buildMesh() {
 
     state._hoverBackup = null;
     state._koppenHoverBackup = null;
+    state._sideSwapped = sideSwapped;
 
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     mat.onBeforeCompile = (shader) => {
@@ -915,7 +946,7 @@ export function buildMesh() {
 // Use this when switching display modes to avoid GPU memory spikes.
 export function updateMeshColors() {
     if (!state.curData || !state.planetMesh) return;
-    const { mesh, r_plate, r_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers } = state.curData;
+    const { mesh, r_plate, r_elevation, t_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers } = state.curData;
     const showPlates = document.getElementById('chkPlates').checked;
     const showStress = false;
     const waterLevel = 0;
@@ -984,15 +1015,33 @@ export function updateMeshColors() {
     const colorAttr = state.planetMesh.geometry.getAttribute('color');
     const colors = colorAttr.array;
     const { numSides } = mesh;
+    const isSmooth = isHeightmap || isLandHeightmap;
+    const sideSwapped = state._sideSwapped;
 
     for (let s = 0; s < numSides; s++) {
-        const br = mesh.s_begin_r(s);
-        const [cr, cg, cb] = getRegionColor(br);
         const off = s * 9;
-        for (let j = 0; j < 3; j++) {
-            colors[off + j*3]     = cr;
-            colors[off + j*3 + 1] = cg;
-            colors[off + j*3 + 2] = cb;
+        if (isSmooth) {
+            const it = mesh.s_inner_t(s);
+            const ot = mesh.s_outer_t(s);
+            const br = mesh.s_begin_r(s);
+            const colorFn = isLandHeightmap ? landHeightmapColor : heightmapColor;
+            const c0 = colorFn(t_elevation[it])[0];
+            const cOt = colorFn(t_elevation[ot])[0];
+            const cBr = colorFn(r_elevation[br])[0];
+            const swapped = sideSwapped && sideSwapped[s];
+            const c1 = swapped ? cBr : cOt;
+            const c2 = swapped ? cOt : cBr;
+            colors[off] = colors[off+1] = colors[off+2] = c0;
+            colors[off+3] = colors[off+4] = colors[off+5] = c1;
+            colors[off+6] = colors[off+7] = colors[off+8] = c2;
+        } else {
+            const br = mesh.s_begin_r(s);
+            const [cr, cg, cb] = getRegionColor(br);
+            for (let j = 0; j < 3; j++) {
+                colors[off + j*3]     = cr;
+                colors[off + j*3 + 1] = cg;
+                colors[off + j*3 + 2] = cb;
+            }
         }
     }
     colorAttr.needsUpdate = true;
@@ -1008,13 +1057,26 @@ export function updateMeshColors() {
 
         for (let f = 0; f < fts.length; f++) {
             const s = fts[f];
-            const br = mesh.s_begin_r(s);
-            const [cr, cg, cb] = getRegionColor(br);
             const off = f * 9;
-            for (let j = 0; j < 3; j++) {
-                mapColors[off + j*3]     = cr;
-                mapColors[off + j*3 + 1] = cg;
-                mapColors[off + j*3 + 2] = cb;
+            if (isSmooth) {
+                const it = mesh.s_inner_t(s);
+                const ot = mesh.s_outer_t(s);
+                const br = mesh.s_begin_r(s);
+                const colorFn = isLandHeightmap ? landHeightmapColor : heightmapColor;
+                const v0 = colorFn(t_elevation[it])[0];
+                const v1 = colorFn(t_elevation[ot])[0];
+                const v2 = colorFn(r_elevation[br])[0];
+                mapColors[off] = mapColors[off+1] = mapColors[off+2] = v0;
+                mapColors[off+3] = mapColors[off+4] = mapColors[off+5] = v1;
+                mapColors[off+6] = mapColors[off+7] = mapColors[off+8] = v2;
+            } else {
+                const br = mesh.s_begin_r(s);
+                const [cr, cg, cb] = getRegionColor(br);
+                for (let j = 0; j < 3; j++) {
+                    mapColors[off + j*3]     = cr;
+                    mapColors[off + j*3 + 1] = cg;
+                    mapColors[off + j*3 + 2] = cb;
+                }
             }
         }
         mapColorAttr.needsUpdate = true;
