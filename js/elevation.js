@@ -632,8 +632,30 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Ridge/fracture/back-arc BFS', ms: performance.now() - _t0 }); _t0 = performance.now();
 
+    // Convergent boundary ridgeline parameters (scale-invariant)
+    const ridgeSigmaBase = Math.max(2, Math.round(3 * scaleFactor));
+    const ridgePeakShift = Math.max(1, Math.round(2 * scaleFactor));
+    const ridgeExtent = Math.max(6, Math.round(8 * scaleFactor));
+    const RIDGE_STRENGTH = 0.15;
+
     // Separate noise instance for fold ridges (decorrelated from main noise)
     const foldNoise = new SimplexNoise(seed + 557);
+
+    // Per-plate random starting height for land plates (mean -25m, stddev 12.5m).
+    // In normalized elevation units: -25m ≈ -0.0025, 12.5m ≈ 0.00125.
+    const plateBaseHeight = {};
+    {
+        const plateHeightRng = makeRng(seed + 777);
+        // Box-Muller transform for normal distribution
+        for (const pid of plateSeeds) {
+            if (!plateIsOcean.has(pid)) {
+                const u1 = plateHeightRng();
+                const u2 = plateHeightRng();
+                const normal = Math.sqrt(-2 * Math.log(u1 || 1e-10)) * Math.cos(2 * Math.PI * u2);
+                plateBaseHeight[pid] = -0.15 + normal * 0.025;
+            }
+        }
+    }
 
     for (let r = 0; r < numRegions; r++) {
         const isOceanPlate = r_isOcean[r];
@@ -673,6 +695,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
         if (!isOceanPlate) {
             const sf = r_subductFactor[r];
+            // Apply per-plate random starting height
+            const pid = r_plate[r];
+            if (plateBaseHeight[pid] !== undefined) {
+                r_elevation[r] += plateBaseHeight[pid];
+            }
             const elevBefore = r_elevation[r];
 
             if (sf > 0.5 && r_elevation[r] > 0) {
@@ -752,16 +779,43 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 }
             }
 
+            // Convergent boundary ridgeline: Gaussian peak near the collision front.
+            // Symmetric when plates have equal density (sf ≈ 0.5), biased heavily
+            // toward the overriding side when one plate subducts.
+            {
+                const dMtnRidge = dist_mountain[r];
+                if (dMtnRidge !== Infinity && dMtnRidge < ridgeExtent && stressNorm > 0.01) {
+                    const sfAsymmetry = Math.abs(sf - 0.5) * 2; // 0 = equal, 1 = full subduction
+                    // Signed distance: positive on subducting side, negative on overriding
+                    const signedDist = sf > 0.5 ? dMtnRidge : -dMtnRidge;
+                    // Peak shifts toward overriding side with subduction asymmetry
+                    const peakPos = -sfAsymmetry * ridgePeakShift;
+                    const dFromPeak = signedDist - peakPos;
+                    // Asymmetric sigma: narrow on subducting side, wider on overriding
+                    const sigma = dFromPeak > 0
+                        ? ridgeSigmaBase * (1 - sfAsymmetry * 0.6)  // subducting: tighter
+                        : ridgeSigmaBase * (1 + sfAsymmetry * 0.5); // overriding: broader
+                    const safeSigma = Math.max(0.5, sigma);
+                    const gauss = Math.exp(-0.5 * (dFromPeak / safeSigma) ** 2);
+                    r_elevation[r] += gauss * stressNorm * RIDGE_STRENGTH;
+                }
+            }
+
             dl_tectonic[r] = r_elevation[r] - elevBefore;
 
             // Compute tectonic activity early — used by noise, interior, and plateau sections.
             // Uses dist_mountain: distance from mountain-building collisions only.
             // Plates with no major collisions get tectonicActivity ≈ 0 (cratons).
+            // Subducting side (sf > 0.5) falls off much faster to keep tectonic
+            // influence concentrated near the boundary.
             const dMtn = dist_mountain[r];
-            const rawProximity = (dMtn === Infinity || dMtn >= tectonicReach)
+            const effReach = sf > 0.5
+                ? tectonicReach * (0.35 + 0.3 * (1 - sf))  // ~35-50% reach on subducting side
+                : tectonicReach;
+            const rawProximity = (dMtn === Infinity || dMtn >= effReach)
                 ? 0
-                : (1 - dMtn / tectonicReach);
-            const tectonicActivity = Math.max(stressNorm, rawProximity * rawProximity);
+                : (1 - dMtn / effReach);
+            const tectonicActivity = Math.max(stressNorm, rawProximity * rawProximity * rawProximity);
             dl_tecActivity[r] = tectonicActivity;
 
             // Fold ridge noise: directional ridges parallel to plate boundaries.
@@ -780,7 +834,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     // Mild phase warp for natural irregularity
                     // (arbitrary domain-shift offsets decorrelate from other noise channels)
                     const phaseWarp = foldNoise.fbm(x * 3 + 55.3, y * 3 + 33.7, z * 3 + 17.2, 2) * 0.08;
-                    const FOLD_FREQ = 30;
+                    const FOLD_FREQ = 45;
                     const phase = (u + phaseWarp) * FOLD_FREQ * Math.PI;
                     // Sharp ridges with valleys: 1-|sin| peaks at zero-crossings
                     const ridge = 1 - Math.abs(Math.sin(phase));
@@ -875,7 +929,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const tUp = Math.min(lcd / (interiorBand * 0.4), 1);
                 const sUp = tUp * tUp * (3 - 2 * tUp);
                 // Tectonic-modulated uplift: +0.06 (quiet craton) to +0.22 (collision plateau)
-                const INTERIOR_BASE = 0.06;
+                const INTERIOR_BASE = 0.08;
                 const INTERIOR_TECTONIC = 0.16;
                 const interiorUplift = INTERIOR_BASE + tectonicActivity * INTERIOR_TECTONIC;
                 const baseBias = -0.08 * (1 - sDown) + interiorUplift * sUp;
@@ -1003,7 +1057,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Active: higher freq + amp → rugged, fjord-like
             const falloff1 = (1 - t) * (1 - t);
             const stressAmp1 = 1 + sn * 5;
-            const coastFreq = isPassiveCoast ? 12 : 18;
+            const coastFreq = isPassiveCoast ? 6 : 9;
             const coastAmp = isPassiveCoast ? 0.08 : 0.12;
             let n1 = cNoise.fbm(x * coastFreq + 3.7, y * coastFreq + 7.1, z * coastFreq + 2.3, 5, 0.55);
             let coastNoise1 = n1 * coastAmp * falloff1 * stressAmp1;
@@ -1018,9 +1072,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             const falloffW = Math.max(0, 1 - t * warpReach);
             if (falloffW > 0) {
                 const warpAmt = 0.35 * falloffW * (1 + sn * 2);
-                const dwx = cNoise3.fbm(x * 6 + 11.3, y * 6 + 4.7, z * 6 + 8.2, 3, 0.6) * warpAmt;
-                const dwy = cNoise3.fbm(x * 6 + 2.9,  y * 6 + 9.4, z * 6 + 1.6, 3, 0.6) * warpAmt;
-                const dwz = cNoise3.fbm(x * 6 + 7.5,  y * 6 + 0.3, z * 6 + 5.9, 3, 0.6) * warpAmt;
+                const dwx = cNoise3.fbm(x * 3 + 11.3, y * 3 + 4.7, z * 3 + 8.2, 3, 0.6) * warpAmt;
+                const dwy = cNoise3.fbm(x * 3 + 2.9,  y * 3 + 9.4, z * 3 + 1.6, 3, 0.6) * warpAmt;
+                const dwz = cNoise3.fbm(x * 3 + 7.5,  y * 3 + 0.3, z * 3 + 5.9, 3, 0.6) * warpAmt;
                 const origN = noise.fbm(x, y, z) * noiseMag;
                 const warpN = noise.fbm(x + dwx, y + dwy, z + dwz) * noiseMag;
                 let warpDelta = (warpN - origN) * falloffW;
@@ -1034,7 +1088,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             if (r_isOcean[r] && dBdry[r] > 0
                 && dBdry[r] <= Math.max(4, Math.round(4 * scaleFactor))
                 && subSup < 0.3) {
-                const islandN = cNoise2.fbm(x * 35 + 5.1, y * 35 + 9.3, z * 35 + 2.7, 4, 0.5);
+                const islandN = cNoise2.fbm(x * 17.5 + 5.1, y * 17.5 + 9.3, z * 17.5 + 2.7, 4, 0.5);
                 const threshold = 0.25 - sn * 0.2;
                 if (islandN > threshold) {
                     const excess = (islandN - threshold) / (1 - threshold);
