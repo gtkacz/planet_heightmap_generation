@@ -454,6 +454,8 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     }
     const excNb  = new Int32Array(maxDeg);
     const excVal = new Float32Array(maxDeg);
+    const excAdjIdx = new Int32Array(maxDeg);
+    const excSlope  = new Float32Array(maxDeg);
 
     for (let iter = 0; iter < totalIters; iter++) {
 
@@ -665,6 +667,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                         const excess = (slope - talusSlope) * d;
                         excNb[excCount] = nb;
                         excVal[excCount] = excess;
+                        excAdjIdx[excCount] = j;
                         excCount++;
                         totalExcess += excess;
                     }
@@ -672,11 +675,27 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
 
                 if (totalExcess <= 0) continue;
 
-                const transfer = kThermal * totalExcess * 0.5;
+                // Slope-weighted distribution: steeper neighbors get more debris
+                let totalSlopeWeighted = 0;
                 for (let k = 0; k < excCount; k++) {
-                    const share = (excVal[k] / totalExcess) * transfer;
-                    delta[r]       -= share;
-                    delta[excNb[k]] += share;
+                    const d = neighborDist[excAdjIdx[k]] || 1e-6;
+                    excSlope[k] = (h - r_elevation[excNb[k]]) / d;
+                    totalSlopeWeighted += excVal[k] * excSlope[k];
+                }
+
+                const transfer = kThermal * totalExcess * 0.5;
+                if (totalSlopeWeighted > 0) {
+                    for (let k = 0; k < excCount; k++) {
+                        const share = (excVal[k] * excSlope[k] / totalSlopeWeighted) * transfer;
+                        delta[r]       -= share;
+                        delta[excNb[k]] += share;
+                    }
+                } else {
+                    for (let k = 0; k < excCount; k++) {
+                        const share = (excVal[k] / totalExcess) * transfer;
+                        delta[r]       -= share;
+                        delta[excNb[k]] += share;
+                    }
                 }
             }
 
@@ -737,10 +756,21 @@ export function sharpenRidges(mesh, r_elevation, r_isOcean, iterations, strength
 
             const avg = sum / count;
             if (h > avg) {
+                // Ridge sharpening: push peaks up
                 let h_new = h + (h - avg) * strength;
                 // Clamp: don't exceed 1.5x original elevation
                 const cap = original[r] * 1.5;
                 if (h_new > cap) h_new = cap;
+                tmp[r] = h_new;
+            } else if (h < avg) {
+                // Valley deepening: push valleys down (weaker than ridge sharpening)
+                const VALLEY_FACTOR = 0.4;
+                let h_new = h - (avg - h) * strength * VALLEY_FACTOR;
+                // Floor cap: don't go below 0.5x original (symmetric to 1.5x ceiling)
+                const floor = original[r] * 0.5;
+                if (original[r] > 0 && h_new < floor) h_new = floor;
+                // Don't push land below sea level
+                if (original[r] > 0 && h_new < 0.001) h_new = 0.001;
                 tmp[r] = h_new;
             } else {
                 tmp[r] = h;
