@@ -52,6 +52,9 @@ export const RIDGE_ASYM_OVERRIDE_WIDEN = 0.5;
 export const RIDGE_STRESS_WIDTH_BASE = 0.75;
 export const RIDGE_STRESS_WIDTH_SCALE = 0.5;
 export const RIDGE_WIDTH_NOISE_AMP = 0.2;
+export const RIDGE_HEIGHT_VAR_BASE = 0.6;
+export const RIDGE_HEIGHT_VAR_SCALE = 0.6;
+export const RIDGE_HEIGHT_VAR_FREQ = 2.5;
 
 export const BASE_SCALE = 0.6;
 export const ASYMMETRY_FACTOR = 0.8;
@@ -195,10 +198,13 @@ export const COAST_SUBDUCT_SUP_RANGE = 0.55;
 // ── Island Scattering ──
 export const ISLAND_DIST_BASE = 4;
 export const ISLAND_FREQ = 17.5;
-export const ISLAND_THRESHOLD_BASE = 0.25;
+export const ISLAND_THRESHOLD_BASE = 0.35;
 export const ISLAND_THRESHOLD_STRESS = 0.2;
-export const ISLAND_BUMP_AMP = 0.18;
+export const ISLAND_BUMP_AMP = 0.22;
+export const ISLAND_PEAK_FLOOR = 0.04;
 export const ISLAND_SUBDUCT_MAX = 0.3;
+
+export const MAX_OCEAN_ARC_ELEV = 0.20;
 
 // ── Island Arcs ──
 export const ARC_DIST_BASE = 5;

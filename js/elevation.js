@@ -20,6 +20,7 @@ import {
     RIDGE_PEAK_SHIFT_BASE, RIDGE_EXTENT_BASE,
     RIDGE_ASYM_SUBDUCT_NARROW, RIDGE_ASYM_OVERRIDE_WIDEN,
     RIDGE_STRESS_WIDTH_BASE, RIDGE_STRESS_WIDTH_SCALE, RIDGE_WIDTH_NOISE_AMP,
+    RIDGE_HEIGHT_VAR_BASE, RIDGE_HEIGHT_VAR_SCALE, RIDGE_HEIGHT_VAR_FREQ,
     BASE_SCALE, ASYMMETRY_FACTOR,
     SUBDUCTING_SUPPRESSION, STRESS_MAG_SCALE, STRESS_DEPRESS_FRAC,
     STRESS_HEIGHT_VAR_BASE, STRESS_HEIGHT_VAR_SCALE,
@@ -66,7 +67,7 @@ import {
     COAST_WARP_PASSIVE_REACH, COAST_WARP_ACTIVE_REACH, COAST_WARP_AMT,
     COAST_SUBDUCT_SUP_LOW, COAST_SUBDUCT_SUP_RANGE,
     ISLAND_DIST_BASE, ISLAND_FREQ, ISLAND_THRESHOLD_BASE, ISLAND_THRESHOLD_STRESS,
-    ISLAND_BUMP_AMP, ISLAND_SUBDUCT_MAX,
+    ISLAND_BUMP_AMP, ISLAND_PEAK_FLOOR, ISLAND_SUBDUCT_MAX, MAX_OCEAN_ARC_ELEV,
     ARC_DIST_BASE, ARC_PEAK_DIST_BASE, ARC_SIGMA_BASE_VAL, ARC_THRESHOLD,
     ARC_UPLIFT_AMP, ARC_SUBDUCT_THRESH,
     VOLC_MIN_SPACING, VOLC_SIGMA_BASE, VOLC_HEIGHT_BASE,
@@ -1005,7 +1006,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                         : localRidgeSigma * (1 + sfAsymmetry * RIDGE_ASYM_OVERRIDE_WIDEN); // overriding: broader
                     const safeSigma = Math.max(0.5, sigma);
                     const gauss = Math.exp(-0.5 * (dFromPeak / safeSigma) ** 2);
-                    r_elevation[r] += gauss * stressNorm * RIDGE_STRENGTH;
+                    // Along-strike height variation: low-frequency noise creates
+                    // peaks and saddles along the ridge rather than a uniform wall.
+                    // Uses a different noise offset from width noise for independence.
+                    const ridgeHeightNoise = RIDGE_HEIGHT_VAR_BASE + RIDGE_HEIGHT_VAR_SCALE * foldNoise.fbm(x * RIDGE_HEIGHT_VAR_FREQ + 17.3, y * RIDGE_HEIGHT_VAR_FREQ + 31.7, z * RIDGE_HEIGHT_VAR_FREQ + 8.9, 2);
+                    r_elevation[r] += gauss * stressNorm * RIDGE_STRENGTH * ridgeHeightNoise;
                 }
             }
 
@@ -1402,7 +1407,10 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 r_elevation[r] = OCEAN_FLOOR_CLAMP;
             }
 
-            // Layer 2: Island scattering (original behavior — kept conservative to avoid false land)
+            // Layer 2: Island scattering — peaked volcanic islands, not flat blobs.
+            // The bump is shaped by ridged noise so that each island cluster has
+            // a sharp central peak tapering to steep flanks.  Cells that would
+            // only barely breach sea level stay submerged instead.
             if (r_isOcean[r] && dBdry[r] > 0
                 && dBdry[r] <= Math.max(4, Math.round(ISLAND_DIST_BASE * scaleFactor))
                 && subSup < ISLAND_SUBDUCT_MAX) {
@@ -1411,9 +1419,16 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 if (islandN > threshold) {
                     const excess = (islandN - threshold) / (1 - threshold);
                     const distFade = 1 - (dBdry[r] / Math.max(4, Math.round(ISLAND_DIST_BASE * scaleFactor)));
-                    let bump = excess * excess * ISLAND_BUMP_AMP * (1 + sn * 2) * distFade;
+                    // Peak mask: ridged noise produces sparse tall spikes.
+                    const peakN = cNoise2.ridgedFbm(x * ISLAND_FREQ * 2.5 + 31.7, y * ISLAND_FREQ * 2.5 + 17.3, z * ISLAND_FREQ * 2.5 + 8.9, 3, 0.5);
+                    const peakMask = peakN * peakN; // [0, 1] — most values near 0
+                    let bump = excess * excess * ISLAND_BUMP_AMP * (1 + sn * 2) * distFade * peakMask;
                     bump *= (1 - subSup / ISLAND_SUBDUCT_MAX);
-                    r_elevation[r] += bump;
+                    // Only apply if the bump would push clearly above sea level.
+                    // Cells with tiny bumps stay submerged — no flat fringe.
+                    if (bump + r_elevation[r] > ISLAND_PEAK_FLOOR) {
+                        r_elevation[r] += bump;
+                    }
                 }
             }
 
@@ -1472,9 +1487,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             if (n > threshold) {
                 const excess = (n - threshold) / (1 - threshold);
                 let uplift = excess * excess * ARC_UPLIFT_AMP * distWeight * (0.5 + arcStress[r]);
-                // On ocean plates, cap uplift so arcs form small islands, not broad land
+                // On ocean plates, cap uplift so arcs form islands with realistic peaks,
+                // not broad elevated plateaus.  The cap allows volcanic-island-scale
+                // peaks (~500–2000m) while preventing continent-sized uplift.
                 if (r_isOcean[r]) {
-                    const maxOceanUplift = Math.max(0, -r_elevation[r] + 0.03);
+                    const maxOceanUplift = Math.max(0, -r_elevation[r] + MAX_OCEAN_ARC_ELEV);
                     uplift = Math.min(uplift, maxOceanUplift);
                 }
                 r_elevation[r] += uplift;
@@ -1485,16 +1502,17 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Island arcs', ms: performance.now() - _t0 }); _t0 = performance.now();
 
-    // Volcanic arcs — discrete stratovolcano edifices along continental subduction zones.
-    // Placed at quasi-regular spacing along convergent boundaries where one plate is oceanic.
+    // Volcanic arcs — discrete stratovolcano edifices along subduction zones.
+    // Placed at quasi-regular spacing along convergent boundaries where at least
+    // one plate is oceanic — includes both ocean-continent AND ocean-ocean convergence.
     {
         const arcVolcNoise = new SimplexNoise(seed + 713);
         const VOLC_MIN_SPACING_SQ = VOLC_MIN_SPACING * VOLC_MIN_SPACING;
 
-        // Collect candidate cells at ocean-continent convergent boundaries (overriding side)
+        // Collect candidate cells at convergent boundaries with oceanic involvement (overriding side)
         const candidates = [];
         for (let r = 0; r < numRegions; r++) {
-            if (r_boundaryType[r] === 1 && r_hasOcean[r] && !r_bothOcean[r]
+            if (r_boundaryType[r] === 1 && r_hasOcean[r]
                 && r_subductFactor[r] < VOLC_SUBDUCT_THRESH) {
                 const stressLocal = Math.min(1, r_stress[r] / maxStress);
                 // Score by stress + noise for selection priority
@@ -1525,9 +1543,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             volcPositions.push({ x: c.x, y: c.y, z: c.z, height, sigma: VOLC_SIGMA_BASE * sigmaVar });
         }
 
-        // Apply Gaussian cones to nearby land regions only
+        // Apply Gaussian cones to all nearby regions (land and ocean).
+        // Ocean cells get volcanic peaks that can breach sea level.
         for (let r = 0; r < numRegions; r++) {
-            if (r_isOcean[r]) continue;
             const rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
             let volcUplift = 0;
             for (let vi = 0; vi < volcPositions.length; vi++) {
