@@ -256,7 +256,7 @@ function flatOceanPlateLand(ctx) {
     const oceanPlateSet = new Set(plateIsOcean);
     let oceanPlateLandCount = 0;
     let flatOceanPlateLandCount = 0;
-    const FLAT_THRESHOLD = 0.08; // below ~640m normalized — too flat for volcanic origin
+    const FLAT_THRESHOLD = 0.21; // below ~50m (quartic elev mapping) — barely above sea level
 
     for (let r = 0; r < N; r++) {
         if (r_elevation[r] <= 0) continue;
@@ -542,12 +542,13 @@ function coastalLowlandIndex(ctx) {
     const p10 = sorted[Math.floor(sorted.length * 0.10)];
     const p30 = sorted[Math.floor(sorted.length * 0.30)];
 
-    // Use absolute thresholds: 0.025 ≈ 200m, 0.0625 ≈ 500m
+    // Thresholds from elevToHeightKm() quartic mapping:
+    // 50m (0.05km) → elev 0.21, 200m → 0.31, 500m → 0.40
     let band0_50 = 0, band50_200 = 0, band200_500 = 0, band500plus = 0;
     for (const e of landElevs) {
-        if (e < 0.00625) band0_50++;
-        else if (e < 0.025) band50_200++;
-        else if (e < 0.0625) band200_500++;
+        if (e < 0.21) band0_50++;
+        else if (e < 0.31) band50_200++;
+        else if (e < 0.40) band200_500++;
         else band500plus++;
     }
     const total = landElevs.length;

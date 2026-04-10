@@ -85,7 +85,7 @@ export const FOLD_ELEV_SCALE = 4;
 export const FOLD_ELEV_BOOST_OFFSET = 0.03;
 export const FOLD_ELEV_BOOST_SCALE = 6;
 export const FOLD_SF_SUPPRESS = 1.5;
-export const FOLD_FREQ_MULT_SCALE = 2.0;
+export const FOLD_FREQ_MULT_SCALE = 1.5;
 
 // ── Basins & Rifts ──
 export const RIFT_HALF_WIDTH_BASE = 4;
@@ -124,7 +124,7 @@ export const NOISE_BASE_SCALE = 0.25;
 export const NOISE_ACTIVITY_CONTRIB = 0.75;
 export const PLATEAU_SUPPRESS_MIN = 0.30;
 export const PLATEAU_SUPPRESS_SCALE = 0.60;
-export const BASIN_AMP_SUPPRESS = 0.5;
+export const BASIN_AMP_SUPPRESS = 0.7;
 export const CRATON_AMP_SUPPRESS = 0.25;
 export const RIDGED_NOISE_AMP = 1.5;
 export const DETAIL_NOISE_FREQ_MULT = 4;
@@ -275,7 +275,7 @@ export const WARP_BIAS_STRENGTH_SCALE = 0.5;
 export const WARP_HOTSPOT_DAMPEN = 0.8;
 
 // ── Smoothing (terrain-post.js) ──
-export const SMOOTH_EDGE_SENSITIVITY = 12;
+export const SMOOTH_EDGE_SENSITIVITY = 8;
 
 // ── Glacial Erosion (terrain-post.js) ──
 export const GLACIAL_LAT_DIVISOR = 4.5;
@@ -284,10 +284,10 @@ export const GLACIAL_ELEV_HIGH = 0.9;
 export const GLACIAL_ELEV_FACTOR_SCALE = 0.3;
 export const GLACIAL_ELEV_FACTOR_LAT_BASE = 0.3;
 export const GLACIAL_ELEV_FACTOR_LAT_SCALE = 0.7;
-export const GLACIAL_CARVE_RATE = 0.025;
-export const GLACIAL_CONVERGENCE_BONUS = 0.015;
-export const GLACIAL_DEPOSIT_AMOUNT = 0.007;
-export const GLACIAL_FJORD_CARVE = 0.020;
+export const GLACIAL_CARVE_RATE = 0.02;
+export const GLACIAL_CONVERGENCE_BONUS = 0.01;
+export const GLACIAL_DEPOSIT_AMOUNT = 0.005;
+export const GLACIAL_FJORD_CARVE = 0.015;
 export const GLACIAL_FLOW_THRESHOLD = 0.1;
 export const GLACIAL_FJORD_THRESHOLD = 0.5;
 export const GLACIAL_WIDENING_FRAC = 0.4;
@@ -306,8 +306,8 @@ export const HYDRAULIC_SLOPE_SENSITIVITY = 50;
 export const THERMAL_TRANSFER_FRAC = 0.5;
 
 // ── Ridge Sharpening (terrain-post.js) ──
-export const RIDGE_SHARPEN_CAP = 2.0;
-export const VALLEY_DEEPEN_FACTOR = 0.5;
+export const RIDGE_SHARPEN_CAP = 1.5;
+export const VALLEY_DEEPEN_FACTOR = 0.4;
 export const VALLEY_FLOOR_FRAC = 0.5;
 export const VALLEY_FLOOR_MIN = 0.001;
 
