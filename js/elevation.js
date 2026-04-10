@@ -3,6 +3,91 @@
 
 import { makeRandInt, makeRng } from './rng.js';
 import { SimplexNoise } from './simplex-noise.js';
+import {
+    COLLISION_THRESHOLD, COLLISION_DT_BASE, COLLISION_DT_REF_REGIONS,
+    PAIR_INTENSITY_BASE, SUBDUCT_UNDULATION_DENSITY_DECAY, SUBDUCT_UNDULATION_FREQ,
+    SUBDUCT_UNDULATION_AMP, SUBDUCT_FACTOR_BASE, SUBDUCT_FACTOR_TANH_SCALE,
+    SUBDUCT_THRESHOLD, BOUNDARY_TYPE_THRESH_FACTOR,
+    STRESS_PROPAGATE_MIN, STRESS_PROPAGATE_CUTOFF,
+    STRESS_DIR_FACTOR_MIN, STRESS_DIR_FACTOR_BASE, STRESS_DIR_FACTOR_SCALE,
+    STRESS_DIR_BLEND_PARENT, STRESS_DIR_BLEND_TRAVEL,
+    STRESS_DIR_SMOOTH_PASSES, STRESS_DIR_SELF_WEIGHT,
+    STRESS_DECAY_BASE, STRESS_DECAY_SPREAD_FACTOR, STRESS_SUBDUCT_DECAY_MULT,
+    STRESS_PASSES_PER_SPREAD, STRESS_PERCENTILE,
+    SMALL_W, SUPER_W,
+    INTERIOR_BAND_BASE, TECTONIC_REACH_BASE, COASTAL_PLAIN_WIDTH_BASE, COAST_BFS_WIDTH_BASE,
+    RIDGE_STRENGTH, RIDGE_SIGMA_BASE as RIDGE_SIGMA_BASE_CFG,
+    RIDGE_PEAK_SHIFT_BASE, RIDGE_EXTENT_BASE,
+    RIDGE_ASYM_SUBDUCT_NARROW, RIDGE_ASYM_OVERRIDE_WIDEN,
+    RIDGE_STRESS_WIDTH_BASE, RIDGE_STRESS_WIDTH_SCALE, RIDGE_WIDTH_NOISE_AMP,
+    BASE_SCALE, ASYMMETRY_FACTOR,
+    SUBDUCTING_SUPPRESSION, STRESS_MAG_SCALE, STRESS_DEPRESS_FRAC,
+    STRESS_HEIGHT_VAR_BASE, STRESS_HEIGHT_VAR_SCALE,
+    SUBDUCTING_REACH_MIN, SUBDUCTING_REACH_RANGE,
+    FOLD_FREQ_PRIMARY, FOLD_FREQ_SECONDARY, FOLD_MEAN_OFFSET,
+    FOLD_PHASE_WARP_AMP, FOLD_PHASE_WARP2_AMP,
+    FOLD_AMP_MOD_BASE, FOLD_AMP_MOD_SCALE, FOLD_AMP_MOD2_BASE, FOLD_AMP_MOD2_SCALE,
+    FOLD_SECONDARY_ALONG, FOLD_SECONDARY_CROSS, FOLD_SECONDARY_AMP,
+    FOLD_NOISE_MAG_SCALE, FOLD_ELEV_THRESHOLD, FOLD_ELEV_SCALE,
+    FOLD_ELEV_BOOST_OFFSET, FOLD_ELEV_BOOST_SCALE, FOLD_SF_SUPPRESS,
+    FOLD_FREQ_MULT_SCALE,
+    RIFT_HALF_WIDTH_BASE, RIFT_FLOOR_MULT, RIFT_SHOULDER_MULT,
+    RIFT_AXIS_DEPTH, RIFT_AXIS_VOLCANIC_AMP,
+    RIFT_FLOOR_DEPTH, RIFT_FLOOR_TAPER, RIFT_FLOOR_VOLCANIC_AMP,
+    RIFT_SHOULDER_UPLIFT, RIFT_FADEOUT_RESIDUAL,
+    BASIN_FREQ, BASIN_FACTOR_BIAS, BASIN_FACTOR_SCALE,
+    FORELAND_STRESS_THRESH, FORELAND_WIDTH_FRAC, FORELAND_BASIN_DEPTH, FORELAND_PEAK_POS,
+    FORELAND_BASIN_DEEPENING_BASE, FORELAND_BASIN_DEEPENING_SCALE,
+    BACK_ARC_START_BASE, BACK_ARC_PEAK_BASE, BACK_ARC_END_BASE,
+    BACK_ARC_DEPTH, BACK_ARC_SUBDUCT_THRESH,
+    WARP_SCALE, OROGENIC_FREQ,
+    NOISE_ACTIVITY_SCALE, NOISE_BASE_SCALE, NOISE_ACTIVITY_CONTRIB,
+    PLATEAU_SUPPRESS_MIN, PLATEAU_SUPPRESS_SCALE,
+    BASIN_AMP_SUPPRESS, CRATON_AMP_SUPPRESS,
+    RIDGED_NOISE_AMP, DETAIL_NOISE_FREQ_MULT, DETAIL_NOISE_AMP,
+    FINE_NOISE_FREQ_MULT, FINE_NOISE_AMP, OCEAN_NOISE_AMP,
+    DISSECT_THRESHOLD as DISSECT_THRESHOLD_CFG, DISSECT_AMP, DISSECT_ELEV_SCALE,
+    SUMMIT_THRESHOLD as SUMMIT_THRESHOLD_CFG, SUMMIT_STRESS_MIN, SUMMIT_SPIKE_OFFSET,
+    SUMMIT_STRESS_FLOOR,
+    PLATE_BASE_HEIGHT_MEAN, PLATE_BASE_HEIGHT_STDDEV,
+    INTERIOR_BASE_SHIELD, INTERIOR_BASE_BASIN, INTERIOR_TECTONIC,
+    COASTAL_DEPRESSION, COASTAL_DEPRESSION_BASIN_REDUCE,
+    INTERIOR_UPLIFT_RAMP_FRAC, INTERIOR_UPLIFT_MOD_AMP, INTERIOR_FLOOR, PLATEAU_BOOST,
+    PLATEAU_START_BASE, MOUNTAIN_BOOST_FRAC,
+    FOLD_BELT_MULT, CRATON_TECTONIC_MULT, BASIN_TECTONIC_MULT,
+    SHELF_NARROW_BASE, SHELF_WIDE_BASE, SLOPE_WIDTH_BASE,
+    SHELF_DEPTH_START, SHELF_DEPTH_RANGE, SLOPE_DEPTH_RANGE,
+    ABYSS_BASE, ABYSS_NOISE_AMP, OCEAN_FLOOR_CLAMP,
+    RIDGE_HALF_WIDTH_BASE as RIDGE_HW_BASE, RIDGE_UPLIFT_NOISE, RIDGE_UPLIFT_BASE,
+    FRACTURE_HALF_WIDTH_BASE, FRACTURE_DEPTH,
+    TRENCH_BASE_DEPTH, TRENCH_STRESS_DEPTH,
+    COAST_ROUGHEN_BASE, COAST_PASSIVE_FREQ, COAST_ACTIVE_FREQ,
+    COAST_PASSIVE_AMP, COAST_ACTIVE_AMP,
+    COAST_WARP_PASSIVE_REACH, COAST_WARP_ACTIVE_REACH, COAST_WARP_AMT,
+    COAST_SUBDUCT_SUP_LOW, COAST_SUBDUCT_SUP_RANGE,
+    ISLAND_DIST_BASE, ISLAND_FREQ, ISLAND_THRESHOLD_BASE, ISLAND_THRESHOLD_STRESS,
+    ISLAND_BUMP_AMP, ISLAND_SUBDUCT_MAX,
+    ARC_DIST_BASE, ARC_PEAK_DIST_BASE, ARC_SIGMA_BASE_VAL, ARC_THRESHOLD,
+    ARC_UPLIFT_AMP, ARC_SUBDUCT_THRESH,
+    VOLC_MIN_SPACING, VOLC_SIGMA_BASE, VOLC_HEIGHT_BASE,
+    VOLC_HEIGHT_VAR_BASE, VOLC_HEIGHT_VAR_RANGE,
+    VOLC_SIGMA_VAR_BASE, VOLC_SIGMA_VAR_RANGE, VOLC_SUBDUCT_THRESH,
+    LIP_SIGMA, LIP_HEIGHT,
+    NUM_HOTSPOTS, CHAIN_LENGTH, CHAIN_DECAY, CHAIN_SPACING,
+    DOME_SIGMA, DOME_STRENGTH, SWELL_SIGMA_MULT, SWELL_STR_MULT,
+    DOME_OCEAN_BOOST, DOME_PEAK_THRESH_SIGMA, DOME_SWELL_THRESH_SIGMA,
+    DOME_DRIFT_STRETCH, DOME_RIFT_BOOST, DOME_CALDERA_SIGMA_FRAC,
+    DOME_CALDERA_DEPTH_FRAC, DOME_CALDERA_STRENGTH_MIN,
+    DOME_AGE_BROADENING, DOME_SHAPE_WARP_FREQ, DOME_SHAPE_WARP_AMP,
+    DOME_SHAPE_WARP_DETAIL_FREQ, DOME_SHAPE_WARP_DETAIL_AMP,
+    DOME_TEXTURE_BASE_WEIGHT, DOME_TEXTURE_DETAIL_WEIGHT,
+    DOME_TEXTURE_ACTIVE_MIN, DOME_TEXTURE_ACTIVE_MAX,
+    DOME_TEXTURE_AGE_MIN_SHIFT, DOME_TEXTURE_AGE_MAX_SHIFT,
+    PEAK_COMPRESS_POWER, ISOSTATIC_K, HYPS_BLEND,
+    HYPS_LOW_BREAK, HYPS_MID_BREAK, HYPS_LOW_ELEV_FRAC, HYPS_MID_ELEV_FRAC,
+    HYPS_HIGH_POWER, FILL_LEVEL,
+    PLAIN_TARGET, PLAIN_SUPPRESSION_STRENGTH,
+} from './terrain-config.js';
 
 // ----------------------------------------------------------------
 //  Euler-pole velocity helper
@@ -22,10 +107,8 @@ export function plateVelocityAt(plateVec, plateId, x, y, z) {
 // ----------------------------------------------------------------
 //  Collision detection
 // ----------------------------------------------------------------
-const COLLISION_THRESHOLD = 0.75;
-
 export function findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateDensity, noise) {
-    const dt = 1e-2 / Math.max(1, Math.sqrt(mesh.numRegions / 10000));
+    const dt = COLLISION_DT_BASE / Math.max(1, Math.sqrt(mesh.numRegions / COLLISION_DT_REF_REGIONS));
     const { numRegions } = mesh;
     const mountain_r  = new Set();
     const coastline_r = new Set();
@@ -48,7 +131,7 @@ export function findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pla
         if (pairIntensityCache.has(key)) return pairIntensityCache.get(key);
         let h = ((lo * 16807) ^ (hi * 48271)) >>> 0;
         h = (((h >> 16) ^ h) * 0x45d9f3b) >>> 0;
-        const val = 0.5 + (h % 10001) / 10000;
+        const val = PAIR_INTENSITY_BASE + (h % 10001) / 10000;
         pairIntensityCache.set(key, val);
         return val;
     }
@@ -88,7 +171,7 @@ export function findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pla
             r_bothOcean[r] = (rOcean && nOcean) ? 1 : 0;
             r_hasOcean[r] = (rOcean || nOcean) ? 1 : 0;
 
-            const thresh = 0.3 * dt;
+            const thresh = BOUNDARY_TYPE_THRESH_FACTOR * dt;
             if (bestNormalComp > thresh) r_boundaryType[r] = 1;
             else if (bestNormalComp < -thresh) r_boundaryType[r] = 2;
             else r_boundaryType[r] = 3;
@@ -107,18 +190,18 @@ export function findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pla
             const myDensity = plateDensity[myPlate];
             const nbDensity = plateDensity[r_plate[best]];
             const densityDiff = myDensity - nbDensity;
-            const baseFactor = 0.5 + 0.5 * Math.tanh(densityDiff * 8);
+            const baseFactor = SUBDUCT_FACTOR_BASE + SUBDUCT_FACTOR_BASE * Math.tanh(densityDiff * SUBDUCT_FACTOR_TANH_SCALE);
             const densityContrast = Math.abs(densityDiff);
-            const undulationStrength = Math.exp(-densityContrast * 12);
+            const undulationStrength = Math.exp(-densityContrast * SUBDUCT_UNDULATION_DENSITY_DECAY);
             const x = r_xyz[3*r], y = r_xyz[3*r+1], z = r_xyz[3*r+2];
-            const undulation = noise.fbm(x * 6, y * 6, z * 6, undulOctaves) * 0.4 * undulationStrength;
+            const undulation = noise.fbm(x * SUBDUCT_UNDULATION_FREQ, y * SUBDUCT_UNDULATION_FREQ, z * SUBDUCT_UNDULATION_FREQ, undulOctaves) * SUBDUCT_UNDULATION_AMP * undulationStrength;
             r_subductFactor[r] = Math.max(0, Math.min(1, baseFactor + undulation));
 
             if (rOcean && nOcean) {
                 (collided ? coastline_r : ocean_r).add(r);
             } else if (!rOcean && !nOcean) {
                 if (collided) {
-                    if (r_subductFactor[r] < 0.55) mountain_r.add(r);
+                    if (r_subductFactor[r] < SUBDUCT_THRESHOLD) mountain_r.add(r);
                     else coastline_r.add(r);
                 }
             } else {
@@ -139,7 +222,7 @@ export function propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_
 
     let frontier = [];
     for (let r = 0; r < mesh.numRegions; r++) {
-        if (r_stress[r] > 0.01) frontier.push(r);
+        if (r_stress[r] > STRESS_PROPAGATE_MIN) frontier.push(r);
     }
 
     for (let pass = 0; pass < numPasses && frontier.length > 0; pass++) {
@@ -149,9 +232,9 @@ export function propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_
             const plate = r_plate[r];
             if (plateOcean[plate]) continue;
             const sf = r_subductFactor[r];
-            const effDecay = sf > 0.5 ? subductDecayFactor : decayFactor;
+            const effDecay = sf > SUBDUCT_FACTOR_BASE ? subductDecayFactor : decayFactor;
             const basePropagate = r_stress[r] * effDecay;
-            if (basePropagate < 0.005) continue;
+            if (basePropagate < STRESS_PROPAGATE_CUTOFF) continue;
 
             // Stress direction at this cell
             const sdx = r_stressDir[3*r], sdy = r_stressDir[3*r+1], sdz = r_stressDir[3*r+2];
@@ -172,7 +255,7 @@ export function propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_
                     // Alignment: 1 = propagating in stress direction, -1 = backward
                     const alignment = (sdx * tdx + sdy * tdy + sdz * tdz) / tLen;
                     // Directional factor: aligned propagation strong, perpendicular moderate, backward weak
-                    const dirFactor = Math.max(0.1, 0.3 + 0.7 * alignment);
+                    const dirFactor = Math.max(STRESS_DIR_FACTOR_MIN, STRESS_DIR_FACTOR_BASE + STRESS_DIR_FACTOR_SCALE * alignment);
                     propagated *= dirFactor;
                 }
 
@@ -188,9 +271,9 @@ export function propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_
                         const tdy = r_xyz[3*nb+1] - r_xyz[3*r+1];
                         const tdz = r_xyz[3*nb+2] - r_xyz[3*r+2];
                         const tLen = Math.sqrt(tdx*tdx + tdy*tdy + tdz*tdz) || 1e-10;
-                        const bx = sdx * 0.8 + (tdx / tLen) * 0.2;
-                        const by = sdy * 0.8 + (tdy / tLen) * 0.2;
-                        const bz = sdz * 0.8 + (tdz / tLen) * 0.2;
+                        const bx = sdx * STRESS_DIR_BLEND_PARENT + (tdx / tLen) * STRESS_DIR_BLEND_TRAVEL;
+                        const by = sdy * STRESS_DIR_BLEND_PARENT + (tdy / tLen) * STRESS_DIR_BLEND_TRAVEL;
+                        const bz = sdz * STRESS_DIR_BLEND_PARENT + (tdz / tLen) * STRESS_DIR_BLEND_TRAVEL;
                         const bLen = Math.sqrt(bx*bx + by*by + bz*bz) || 1e-10;
                         r_stressDir[3*nb] = bx / bLen;
                         r_stressDir[3*nb+1] = by / bLen;
@@ -205,21 +288,21 @@ export function propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_
     // Post-BFS direction smoothing: relax each stressed cell's direction toward
     // the stress-weighted average of its neighbors. Cleans up artifacts where
     // competing stress paths from different boundary segments meet.
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass = 0; pass < STRESS_DIR_SMOOTH_PASSES; pass++) {
         for (let r = 0; r < mesh.numRegions; r++) {
-            if (r_stress[r] < 0.01) continue;
+            if (r_stress[r] < STRESS_PROPAGATE_MIN) continue;
             const plate = r_plate[r];
             if (plateOcean[plate]) continue;
             let ax = 0, ay = 0, az = 0, totalW = 0;
             // Self contribution (strong anchor to prevent drift)
-            const selfW = r_stress[r] * 2;
+            const selfW = r_stress[r] * STRESS_DIR_SELF_WEIGHT;
             ax += r_stressDir[3*r]   * selfW;
             ay += r_stressDir[3*r+1] * selfW;
             az += r_stressDir[3*r+2] * selfW;
             totalW += selfW;
             for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
                 const nb = adjList[ni];
-                if (r_plate[nb] !== plate || r_stress[nb] < 0.01) continue;
+                if (r_plate[nb] !== plate || r_stress[nb] < STRESS_PROPAGATE_MIN) continue;
                 const w = r_stress[nb];
                 ax += r_stressDir[3*nb]   * w;
                 ay += r_stressDir[3*nb+1] * w;
@@ -329,8 +412,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     // Blend weights for dual-layer orogeny (small plates vs super plates).
     // All collision outputs use these same weights for consistency.
-    const SMALL_W = 0.05;
-    const SUPER_W = 0.95;
+    // SMALL_W and SUPER_W imported from terrain-config.js
 
     if (!hasSuperPlates) {
         ({ mountain_r, coastline_r, ocean_r, r_stress, r_stressDir, r_subductFactor, r_boundaryType, r_bothOcean, r_hasOcean } = smallCol);
@@ -421,12 +503,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     }
 
     // Propagate stress inward
-    const scaleFactor = Math.sqrt(numRegions / 10000);
-    const baseDecay = 0.5 + spread * 0.04;
+    const scaleFactor = Math.sqrt(numRegions / COLLISION_DT_REF_REGIONS);
+    const baseDecay = STRESS_DECAY_BASE + spread * STRESS_DECAY_SPREAD_FACTOR;
     const decayFactor = Math.pow(baseDecay, 1 / scaleFactor);
-    const subductBaseDecay = baseDecay * 0.45;
+    const subductBaseDecay = baseDecay * STRESS_SUBDUCT_DECAY_MULT;
     const subductDecayFactor = Math.pow(subductBaseDecay, 1 / scaleFactor);
-    const numPasses = Math.max(1, Math.round(spread * 3 * scaleFactor));
+    const numPasses = Math.max(1, Math.round(spread * STRESS_PASSES_PER_SPREAD * scaleFactor));
 
     if (!hasSuperPlates) {
         propagateStress(mesh, r_stress, r_stressDir, r_subductFactor, r_plate, r_xyz, plateIsOcean, decayFactor, subductDecayFactor, numPasses);
@@ -479,7 +561,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     const stress_mountain_r = new Set();
     for (const r of mountain_r) {
-        if (r_subductFactor[r] < 0.55) stress_mountain_r.add(r);
+        if (r_subductFactor[r] < SUBDUCT_THRESHOLD) stress_mountain_r.add(r);
     }
 
     const stop_r = new Set([...stress_mountain_r, ...coastline_r, ...ocean_r]);
@@ -524,13 +606,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     // Fixed band width for interior uplift (in BFS cells), scaled by resolution.
     // Tune INTERIOR_BAND_BASE to control how many cells deep the transition is.
-    const INTERIOR_BAND_BASE = 16;
     const interiorBand = Math.max(4, Math.round(INTERIOR_BAND_BASE * scaleFactor));
 
     // How far mountain-building collisions influence interior uplift (BFS cells).
     // Uses dist_mountain (already computed from stress_mountain_r seeds, blocked by ocean).
     // Only major convergent boundaries drive plateau formation, not every minor boundary.
-    const TECTONIC_REACH_BASE = 20;
     const tectonicReach = Math.max(6, Math.round(TECTONIC_REACH_BASE * scaleFactor));
 
     // Use 95th-percentile of non-zero stress for normalization.
@@ -539,21 +619,21 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     let maxStress = 0;
     const stressVals = [];
     for (let r = 0; r < numRegions; r++) {
-        if (r_stress[r] > 0.01) stressVals.push(r_stress[r]);
+        if (r_stress[r] > STRESS_PROPAGATE_MIN) stressVals.push(r_stress[r]);
         if (r_stress[r] > maxStress) maxStress = r_stress[r];
     }
     if (stressVals.length > 0) {
         stressVals.sort((a, b) => a - b);
-        maxStress = stressVals[Math.min(stressVals.length - 1, Math.floor(stressVals.length * 0.97))];
+        maxStress = stressVals[Math.min(stressVals.length - 1, Math.floor(stressVals.length * STRESS_PERCENTILE))];
     }
     if (maxStress < 0.01) maxStress = 1;
 
     const eps = 1e-3;
-    const warpScale = 0.4;
+    const warpScale = WARP_SCALE;
     const warpOctaves = numRegions > 200000 ? 2 : 3;
 
     // Plateau zone: overriding-side cells beyond this distance from mountain front
-    const plateauStart = Math.max(2, Math.round(3 * scaleFactor));
+    const plateauStart = Math.max(2, Math.round(PLATEAU_START_BASE * scaleFactor));
 
     // ---- Coast-boundary BFS (hoisted for use by ocean floor + coastal roughening) ----
     // Identifies each cell's nearest coastline boundary and propagates boundary type info.
@@ -568,8 +648,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         }
     }
 
-    const COASTAL_PLAIN_WIDTH_BASE = 18;
-    const maxCD = Math.max(8, Math.round(8 * scaleFactor));
+    const maxCD = Math.max(8, Math.round(COAST_BFS_WIDTH_BASE * scaleFactor));
     const dBdry = new Float32Array(numRegions);
     dBdry.fill(maxCD + 1);
     const coastStressMax = new Float32Array(numRegions);
@@ -606,7 +685,6 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     }
 
     // ---- Rift BFS (structured graben profile for divergent continent-continent boundaries) ----
-    const RIFT_HALF_WIDTH_BASE = 4;
     const riftHalfWidth = Math.max(2, Math.round(RIFT_HALF_WIDTH_BASE * scaleFactor));
     const riftDist = new Float32Array(numRegions);
     riftDist.fill(Infinity);
@@ -637,8 +715,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     _timing.push({ stage: 'Coast boundary + rift BFS', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // ---- Mid-ocean ridge BFS (wider ridge feature from divergent ocean-ocean boundaries) ----
-    const RIDGE_HALF_WIDTH_BASE = 4;
-    const ridgeHalfWidth = Math.max(2, Math.round(RIDGE_HALF_WIDTH_BASE * scaleFactor));
+    const ridgeHalfWidth = Math.max(2, Math.round(RIDGE_HW_BASE * scaleFactor));
     const ridgeDist = new Float32Array(numRegions);
     ridgeDist.fill(Infinity);
     const ridgeSeeds = [];
@@ -665,7 +742,6 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     }
 
     // ---- Oceanic fracture zone BFS (transform ocean-ocean boundaries) ----
-    const FRACTURE_HALF_WIDTH_BASE = 3;
     const fractureHalfWidth = Math.max(2, Math.round(FRACTURE_HALF_WIDTH_BASE * scaleFactor));
     const fractureDist = new Float32Array(numRegions);
     fractureDist.fill(Infinity);
@@ -695,15 +771,15 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // ---- Back-arc basin BFS (depression behind subduction zones) ----
     // Seeds: overriding side of any convergent boundary involving ocean.
     // Excludes continent-continent collisions (r_hasOcean === 0).
-    const baStart = Math.max(1, Math.round(2 * scaleFactor));
-    const baPeak = Math.max(2, Math.round(3 * scaleFactor));
-    const baEnd = Math.max(3, Math.round(5 * scaleFactor));
+    const baStart = Math.max(1, Math.round(BACK_ARC_START_BASE * scaleFactor));
+    const baPeak = Math.max(2, Math.round(BACK_ARC_PEAK_BASE * scaleFactor));
+    const baEnd = Math.max(3, Math.round(BACK_ARC_END_BASE * scaleFactor));
     const backArcDist = new Float32Array(numRegions);
     backArcDist.fill(Infinity);
     const backArcStress = new Float32Array(numRegions);
     const backArcSeeds = [];
     for (let r = 0; r < numRegions; r++) {
-        if (r_boundaryType[r] === 1 && r_hasOcean[r] && r_subductFactor[r] < 0.50) {
+        if (r_boundaryType[r] === 1 && r_hasOcean[r] && r_subductFactor[r] < BACK_ARC_SUBDUCT_THRESH) {
             backArcSeeds.push(r);
             backArcDist[r] = 0;
             backArcStress[r] = Math.min(1, r_stress[r] / maxStress);
@@ -730,10 +806,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     _timing.push({ stage: 'Ridge/fracture/back-arc BFS', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Convergent boundary ridgeline parameters (scale-invariant)
-    const ridgeSigmaBase = Math.max(2, Math.round(5 * scaleFactor));
-    const ridgePeakShift = Math.max(1, Math.round(2 * scaleFactor));
-    const ridgeExtent = Math.max(4, Math.round(10 * scaleFactor));
-    const RIDGE_STRENGTH = 0.12;
+    const ridgeSigmaBase = Math.max(2, Math.round(RIDGE_SIGMA_BASE_CFG * scaleFactor));
+    const ridgePeakShift = Math.max(1, Math.round(RIDGE_PEAK_SHIFT_BASE * scaleFactor));
+    const ridgeExtent = Math.max(4, Math.round(RIDGE_EXTENT_BASE * scaleFactor));
 
     // Separate noise instance for fold ridges (decorrelated from main noise)
     const foldNoise = new SimplexNoise(seed + 557);
@@ -749,7 +824,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const u1 = plateHeightRng();
                 const u2 = plateHeightRng();
                 const normal = Math.sqrt(-2 * Math.log(u1 || 1e-10)) * Math.cos(2 * Math.PI * u2);
-                plateBaseHeight[pid] = -0.15 + normal * 0.025;
+                plateBaseHeight[pid] = PLATE_BASE_HEIGHT_MEAN + normal * PLATE_BASE_HEIGHT_STDDEV;
             }
         }
     }
@@ -759,12 +834,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     const r_basinFactor = new Float32Array(numRegions);
     {
         const basinNoise = new SimplexNoise(seed + 661);
-        const BASIN_FREQ = 1.8;
         for (let r = 0; r < numRegions; r++) {
             if (r_isOcean[r]) continue;
             const bx = r_xyz[3 * r], by = r_xyz[3 * r + 1], bz = r_xyz[3 * r + 2];
             const raw = basinNoise.fbm(bx * BASIN_FREQ + 7.3, by * BASIN_FREQ + 3.1, bz * BASIN_FREQ + 9.7, 2, 0.5);
-            r_basinFactor[r] = Math.max(0, Math.min(1, 0.5 + raw * 0.6));
+            r_basinFactor[r] = Math.max(0, Math.min(1, BASIN_FACTOR_BIAS + raw * BASIN_FACTOR_SCALE));
         }
     }
 
@@ -776,11 +850,10 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         // sf < 0.5 (overriding): compressed distance → higher base → gentler slope
         // sf = 0.5 (neutral / far from boundary): no effect
         const sfAsym = r_subductFactor[r];
-        const asymmetry = 1.0 + (sfAsym - 0.5) * 0.8;
+        const asymmetry = 1.0 + (sfAsym - 0.5) * ASYMMETRY_FACTOR;
         const a = dist_mountain[r] * asymmetry + eps;
         const b = dist_ocean[r]     + eps;
         const c = dist_coastline[r] + eps;
-        const BASE_SCALE = 0.6;
         if (a === Infinity && b === Infinity) {
             r_elevation[r] = 0.1 * BASE_SCALE;
         } else {
@@ -799,7 +872,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         // Orogenic power: single-octave noise for blocky, high-contrast
         // zones.  Computed for ALL regions so the debug layer shows the
         // full noise field (not skewed by ocean zeros).
-        const rawOro = noise.noise3D(x * 1.5 + 33.7, y * 1.5 + 11.2, z * 1.5 + 22.9);
+        const rawOro = noise.noise3D(x * OROGENIC_FREQ + 33.7, y * OROGENIC_FREQ + 11.2, z * OROGENIC_FREQ + 22.9);
         const shaped = rawOro >= 0 ? Math.sqrt(rawOro) : -Math.sqrt(-rawOro);
         const orogenicPower = Math.max(0, Math.min(1, 0.5 + 0.5 * shaped));
         dl_orogenicPower[r] = orogenicPower - 0.5;  // center on 0 for diverging debug color scale
@@ -815,14 +888,14 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             if (sf > 0.5 && r_elevation[r] > 0) {
                 const suppression = (sf - 0.5) * 2;
-                r_elevation[r] *= 1 - suppression * 0.42;
+                r_elevation[r] *= 1 - suppression * SUBDUCTING_SUPPRESSION;
             }
 
             if (stressNorm > 0.01) {
-                const stressMag = stressNorm * stressNorm * 0.40 * orogenicPower;
+                const stressMag = stressNorm * stressNorm * STRESS_MAG_SCALE * orogenicPower;
                 const uplift  = stressMag * (1 - sf);
-                const depress = stressMag * 0.4 * sf;
-                const heightVar = 0.60 + 0.8 * noise.fbm(x * 8 + 13.7, y * 8 + 9.2, z * 8 + 4.5, 3);
+                const depress = stressMag * STRESS_DEPRESS_FRAC * sf;
+                const heightVar = STRESS_HEIGHT_VAR_BASE + STRESS_HEIGHT_VAR_SCALE * noise.fbm(x * 8 + 13.7, y * 8 + 9.2, z * 8 + 4.5, 3);
                 r_elevation[r] += (uplift - depress) * heightVar;
             }
 
@@ -830,13 +903,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Deepest near the mountain front, tapering away into the continental interior.
             {
                 const dMtn = dist_mountain[r];
-                if (dMtn !== Infinity && stressNorm < 0.15 && sf < 0.50) {
-                    const FORELAND_WIDTH_FRAC = 0.3;
+                if (dMtn !== Infinity && stressNorm < FORELAND_STRESS_THRESH && sf < BACK_ARC_SUBDUCT_THRESH) {
                     const forelandWidth = Math.max(2, Math.round(interiorBand * FORELAND_WIDTH_FRAC));
                     if (dMtn < forelandWidth) {
                         const t = dMtn / forelandWidth;
-                        const BASIN_DEPTH = 0.05;
-                        const peakPos = 0.2; // deepest at 20% of width from orogen
+                        const peakPos = FORELAND_PEAK_POS; // deepest at 20% of width from orogen
                         let profile;
                         if (t < peakPos) {
                             const s = t / peakPos;
@@ -845,10 +916,10 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                             const s = (t - peakPos) / (1 - peakPos);
                             profile = 1 - s * s * (3 - 2 * s); // smoothstep taper back to zero
                         }
-                        const stressFade = 1 - Math.min(1, stressNorm / 0.15);
+                        const stressFade = 1 - Math.min(1, stressNorm / FORELAND_STRESS_THRESH);
                         // Basins near orogens deepen more (foreland basin connection)
-                        const basinDeepening = 0.5 + 0.5 * r_basinFactor[r];
-                        r_elevation[r] -= BASIN_DEPTH * profile * stressFade * basinDeepening;
+                        const basinDeepening = FORELAND_BASIN_DEEPENING_BASE + FORELAND_BASIN_DEEPENING_SCALE * r_basinFactor[r];
+                        r_elevation[r] -= FORELAND_BASIN_DEPTH * profile * stressFade * basinDeepening;
                     }
                 }
             }
@@ -858,29 +929,29 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             {
                 const rd = riftDist[r];
                 if (rd !== Infinity) {
-                    const floorEnd = Math.max(1, Math.round(1.5 * scaleFactor));
-                    const shoulderEnd = Math.max(2, Math.round(2.5 * scaleFactor));
+                    const floorEnd = Math.max(1, Math.round(RIFT_FLOOR_MULT * scaleFactor));
+                    const shoulderEnd = Math.max(2, Math.round(RIFT_SHOULDER_MULT * scaleFactor));
                     let riftEffect = 0;
                     if (rd <= 0.5) {
                         // Rift axis: deepest depression
-                        riftEffect = -0.15;
+                        riftEffect = RIFT_AXIS_DEPTH;
                         // Volcanic ridged noise along axis
-                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * 0.04;
+                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_AXIS_VOLCANIC_AMP;
                     } else if (rd <= floorEnd) {
                         // Rift floor: still depressed, with volcanic texture
                         const t = rd / floorEnd;
-                        riftEffect = -0.12 * (1 - t * 0.3);
-                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * 0.03 * (1 - t);
+                        riftEffect = RIFT_FLOOR_DEPTH * (1 - t * RIFT_FLOOR_TAPER);
+                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_FLOOR_VOLCANIC_AMP * (1 - t);
                     } else if (rd <= shoulderEnd) {
                         // Rift shoulders: modest uplift flanking the graben
                         const t = (rd - floorEnd) / (shoulderEnd - floorEnd);
-                        riftEffect = 0.03 * (1 - t);
+                        riftEffect = RIFT_SHOULDER_UPLIFT * (1 - t);
                     } else if (riftHalfWidth > shoulderEnd) {
                         // Smooth fadeout to ambient
                         const t = (rd - shoulderEnd) / (riftHalfWidth - shoulderEnd);
                         const fadeT = Math.min(1, t);
                         const fade = fadeT * fadeT * (3 - 2 * fadeT); // smoothstep
-                        riftEffect = 0.03 * (1 - fade) * 0.2; // tiny residual shoulder
+                        riftEffect = RIFT_SHOULDER_UPLIFT * (1 - fade) * RIFT_FADEOUT_RESIDUAL; // tiny residual shoulder
                     }
                     r_elevation[r] += riftEffect;
                 }
@@ -901,11 +972,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     if (bad <= baPeak) {
                         const t = (bad - baStart) / Math.max(1, baPeak - baStart);
                         const s = t * t * (3 - 2 * t);
-                        baEffect = -0.10 * backArcStress[r] * s * orogenyFactor;
+                        baEffect = -BACK_ARC_DEPTH * backArcStress[r] * s * orogenyFactor;
                     } else if (bad <= baEnd) {
                         const t = (bad - baPeak) / Math.max(1, baEnd - baPeak);
                         const s = t * t * (3 - 2 * t);
-                        baEffect = -0.10 * backArcStress[r] * (1 - s) * orogenyFactor;
+                        baEffect = -BACK_ARC_DEPTH * backArcStress[r] * (1 - s) * orogenyFactor;
                     }
                     r_elevation[r] += baEffect;
                     dl_backArc[r] = baEffect;
@@ -925,13 +996,13 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     const peakPos = -sfAsymmetry * ridgePeakShift;
                     const dFromPeak = signedDist - peakPos;
                     // Modulate range width by local convergence rate and along-strike noise
-                    const stressWidthMod = 0.75 + 0.5 * stressNorm;
-                    const widthNoise = 1.0 + 0.2 * foldNoise.fbm(x * 3 + 44.1, y * 3 + 22.7, z * 3 + 11.3, 2);
+                    const stressWidthMod = RIDGE_STRESS_WIDTH_BASE + RIDGE_STRESS_WIDTH_SCALE * stressNorm;
+                    const widthNoise = 1.0 + RIDGE_WIDTH_NOISE_AMP * foldNoise.fbm(x * 3 + 44.1, y * 3 + 22.7, z * 3 + 11.3, 2);
                     const localRidgeSigma = ridgeSigmaBase * stressWidthMod * widthNoise;
                     // Asymmetric sigma: narrow on subducting side, wider on overriding
                     const sigma = dFromPeak > 0
-                        ? localRidgeSigma * (1 - sfAsymmetry * 0.6)  // subducting: tighter
-                        : localRidgeSigma * (1 + sfAsymmetry * 0.5); // overriding: broader
+                        ? localRidgeSigma * (1 - sfAsymmetry * RIDGE_ASYM_SUBDUCT_NARROW)  // subducting: tighter
+                        : localRidgeSigma * (1 + sfAsymmetry * RIDGE_ASYM_OVERRIDE_WIDEN); // overriding: broader
                     const safeSigma = Math.max(0.5, sigma);
                     const gauss = Math.exp(-0.5 * (dFromPeak / safeSigma) ** 2);
                     r_elevation[r] += gauss * stressNorm * RIDGE_STRENGTH;
@@ -947,7 +1018,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // influence concentrated near the boundary.
             const dMtn = dist_mountain[r];
             const effReach = sf > 0.5
-                ? tectonicReach * (0.35 + 0.3 * (1 - sf))  // ~35-50% reach on subducting side
+                ? tectonicReach * (SUBDUCTING_REACH_MIN + SUBDUCTING_REACH_RANGE * (1 - sf))  // ~35-50% reach on subducting side
                 : tectonicReach;
             const rawProximity = (dMtn === Infinity || dMtn >= effReach)
                 ? 0
@@ -964,9 +1035,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const pv = plateVec[pid];
                 // Elevation-driven folds only kick in on substantial terrain (> 0.15 ≈ 1.5km),
                 // so flat coasts and lowlands stay smooth while mountains get ridge texture
-                const elevFoldDrive = Math.max(0, (r_elevation[r] - 0.05) * 4);
+                const elevFoldDrive = Math.max(0, (r_elevation[r] - FOLD_ELEV_THRESHOLD) * FOLD_ELEV_SCALE);
                 const clampedElevDrive = Math.min(1, elevFoldDrive);
-                const foldActivity = Math.max(tectonicActivity, clampedElevDrive * 0.5);
+                const foldActivity = Math.max(tectonicActivity, clampedElevDrive * SUBDUCT_FACTOR_BASE);
                 if (pv && foldActivity > 0.01) {
                     const ppx = pv.pole[0], ppy = pv.pole[1], ppz = pv.pole[2];
                     // Fold coordinate: project velocity onto tangent plane, then use
@@ -982,20 +1053,20 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     const u = (x * vx + y * vy + z * vz) / vLen;
                     // Mild phase warp for natural irregularity
                     // (arbitrary domain-shift offsets decorrelate from other noise channels)
-                    const phaseWarp = foldNoise.fbm(x * 3 + 55.3, y * 3 + 33.7, z * 3 + 17.2, 2) * 0.08;
-                    const FOLD_FREQ = 120;
+                    const phaseWarp = foldNoise.fbm(x * 3 + 55.3, y * 3 + 33.7, z * 3 + 17.2, 2) * FOLD_PHASE_WARP_AMP;
+                    const FOLD_FREQ = FOLD_FREQ_PRIMARY;
                     const phase = (u + phaseWarp) * FOLD_FREQ * Math.PI;
                     // Sharp ridges with valleys: 1-|sin| peaks at zero-crossings
                     const ridge = 1 - Math.abs(Math.sin(phase));
                     // Center around zero (mean of 1-|sin| ≈ 0.36)
-                    const foldCentered = ridge - 0.36;
+                    const foldCentered = ridge - FOLD_MEAN_OFFSET;
                     // Amplitude varies along ridges to break uniformity
-                    const ampMod = 0.6 + 0.4 * foldNoise.fbm(x * 4 + 88.1, y * 4 + 62.3, z * 4 + 41.7, 2);
+                    const ampMod = FOLD_AMP_MOD_BASE + FOLD_AMP_MOD_SCALE * foldNoise.fbm(x * 4 + 88.1, y * 4 + 62.3, z * 4 + 41.7, 2);
                     // Scale by elevation — folds only carve into significant terrain,
                     // flat coasts and lowlands stay smooth even near boundaries
-                    const elevBoost = Math.max(0, r_elevation[r] - 0.03) * 6;
+                    const elevBoost = Math.max(0, r_elevation[r] - FOLD_ELEV_BOOST_OFFSET) * FOLD_ELEV_BOOST_SCALE;
                     // Strong near orogeny (squared falloff), suppressed on subducting side
-                    const foldAmp = foldActivity * Math.max(0, 1 - sf * 1.5) * noiseMag * 0.8 * elevBoost;
+                    const foldAmp = foldActivity * Math.max(0, 1 - sf * FOLD_SF_SUPPRESS) * noiseMag * FOLD_NOISE_MAG_SCALE * elevBoost;
                     foldContrib = foldCentered * foldAmp * ampMod;
 
                     // Secondary fold layer: 2.5x frequency, noisier, slightly cross-grain
@@ -1003,15 +1074,15 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     const cx = y * vz - z * vy, cy = z * vx - x * vz, cz = x * vy - y * vx;
                     const cLen = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1e-10;
                     // Mix: mostly along velocity (0.85) with slight cross-grain (0.15)
-                    const u2 = (0.85 * (x * vx + y * vy + z * vz) / vLen
-                              + 0.15 * (x * cx + y * cy + z * cz) / cLen);
-                    const phaseWarp2 = foldNoise.fbm(x * 5 + 71.2, y * 5 + 19.8, z * 5 + 43.6, 3) * 0.12;
-                    const FOLD_FREQ_2 = 300;  // 2.5x primary
+                    const u2 = (FOLD_SECONDARY_ALONG * (x * vx + y * vy + z * vz) / vLen
+                              + FOLD_SECONDARY_CROSS * (x * cx + y * cy + z * cz) / cLen);
+                    const phaseWarp2 = foldNoise.fbm(x * 5 + 71.2, y * 5 + 19.8, z * 5 + 43.6, 3) * FOLD_PHASE_WARP2_AMP;
+                    const FOLD_FREQ_2 = FOLD_FREQ_SECONDARY;  // 2.5x primary
                     const phase2 = (u2 + phaseWarp2) * FOLD_FREQ_2 * Math.PI;
                     const ridge2 = 1 - Math.abs(Math.sin(phase2));
-                    const fold2Centered = ridge2 - 0.36;
-                    const ampMod2 = 0.5 + 0.5 * foldNoise.fbm(x * 6 + 33.4, y * 6 + 77.1, z * 6 + 52.9, 2);
-                    foldContrib += fold2Centered * foldAmp * ampMod2 * 0.18;
+                    const fold2Centered = ridge2 - FOLD_MEAN_OFFSET;
+                    const ampMod2 = FOLD_AMP_MOD2_BASE + FOLD_AMP_MOD2_SCALE * foldNoise.fbm(x * 6 + 33.4, y * 6 + 77.1, z * 6 + 52.9, 2);
+                    foldContrib += fold2Centered * foldAmp * ampMod2 * FOLD_SECONDARY_AMP;
 
                     r_elevation[r] += foldContrib;
                     dl_foldRidge[r] = foldContrib;
@@ -1024,33 +1095,33 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Terrain-type-aware noise: classify into archetypes and modulate noise parameters.
             // Fold belts get higher frequency + ridged noise, cratons get smooth low-frequency,
             // sedimentary basins get suppressed amplitude (flat plains).
-            const isFoldBelt = Math.min(1, stressNorm * 3);
-            const isCraton = Math.max(0, 1 - tectonicActivity * 2.5) * (1 - r_basinFactor[r]);
-            const isBasin = r_basinFactor[r] * Math.max(0, 1 - tectonicActivity * 2);
+            const isFoldBelt = Math.min(1, stressNorm * FOLD_BELT_MULT);
+            const isCraton = Math.max(0, 1 - tectonicActivity * CRATON_TECTONIC_MULT) * (1 - r_basinFactor[r]);
+            const isBasin = r_basinFactor[r] * Math.max(0, 1 - tectonicActivity * BASIN_TECTONIC_MULT);
 
             // Fold belts get 1x-2.5x frequency for tighter, more chaotic terrain
-            const foldFreqMult = 1.0 + isFoldBelt * 1.5;
+            const foldFreqMult = 1.0 + isFoldBelt * FOLD_FREQ_MULT_SCALE;
             // Basin/craton amplitude suppression
-            const basinAmpSuppress = 1.0 - isBasin * 0.7;    // basins: 30-100% amplitude
-            const cratonAmpSuppress = 1.0 - isCraton * 0.4;  // cratons: 60-100% amplitude
+            const basinAmpSuppress = 1.0 - isBasin * BASIN_AMP_SUPPRESS;    // basins: 30-100% amplitude
+            const cratonAmpSuppress = 1.0 - isCraton * CRATON_AMP_SUPPRESS;  // cratons: 60-100% amplitude
             const terrainTypeSuppress = basinAmpSuppress * cratonAmpSuppress;
 
             const blend = isFoldBelt;
             const smoothNoise = noise.fbm(wx * foldFreqMult, wy * foldFreqMult, wz * foldFreqMult) * noiseMag;
-            const ridgedNoise = noise.ridgedFbm(wx * foldFreqMult, wy * foldFreqMult, wz * foldFreqMult) * noiseMag * 1.5;
+            const ridgedNoise = noise.ridgedFbm(wx * foldFreqMult, wy * foldFreqMult, wz * foldFreqMult) * noiseMag * RIDGED_NOISE_AMP;
             const noiseVal = smoothNoise * (1 - blend) + ridgedNoise * blend;
             // Higher-freq detail layer: zero-mean, half strength
-            const detailNoise = noise.fbm(wx * 4 * foldFreqMult + 22.1, wy * 4 * foldFreqMult + 6.8, wz * 4 * foldFreqMult + 15.4, 4, 0.5) * noiseMag * 0.5;
+            const detailNoise = noise.fbm(wx * DETAIL_NOISE_FREQ_MULT * foldFreqMult + 22.1, wy * DETAIL_NOISE_FREQ_MULT * foldFreqMult + 6.8, wz * DETAIL_NOISE_FREQ_MULT * foldFreqMult + 15.4, 4, 0.5) * noiseMag * DETAIL_NOISE_AMP;
             // Scale noise amplitude by tectonic activity: rough near collisions, smooth in quiet interiors
-            const noiseActivity = Math.min(1, stressNorm * 4);
+            const noiseActivity = Math.min(1, stressNorm * NOISE_ACTIVITY_SCALE);
             // Plateau flatness: additionally suppress noise on overriding side behind collisions
             const plateauSuppress = isPlateauZone
-                ? Math.max(0.30, 1 - tectonicActivity * 0.60)
+                ? Math.max(PLATEAU_SUPPRESS_MIN, 1 - tectonicActivity * PLATEAU_SUPPRESS_SCALE)
                 : 1.0;
-            const noiseScale = (0.25 + 0.75 * noiseActivity) * plateauSuppress * terrainTypeSuppress;
+            const noiseScale = (NOISE_BASE_SCALE + NOISE_ACTIVITY_CONTRIB * noiseActivity) * plateauSuppress * terrainTypeSuppress;
             // Fine detail layer: 8x frequency, quarter strength, half-dampened.
             // Uses sqrt of noiseScale so it retains texture in quiet interiors where other noise is suppressed.
-            const fineNoise = noise.fbm(wx * 8 + 41.7, wy * 8 + 13.2, wz * 8 + 27.9, 3, 0.5) * noiseMag * 0.25;
+            const fineNoise = noise.fbm(wx * FINE_NOISE_FREQ_MULT + 41.7, wy * FINE_NOISE_FREQ_MULT + 13.2, wz * FINE_NOISE_FREQ_MULT + 27.9, 3, 0.5) * noiseMag * FINE_NOISE_AMP;
             const fineScale = Math.sqrt(noiseScale);
             const totalNoise = (noiseVal + detailNoise) * noiseScale + fineNoise * fineScale;
             r_elevation[r] += totalNoise;
@@ -1061,7 +1132,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Activates above ~1.2 km equivalent (0.12 in normalized elevation,
             // where 1.0 ≈ 10 km Everest-scale).
             {
-                const DISSECT_THRESHOLD = 0.12;
+                const DISSECT_THRESHOLD = DISSECT_THRESHOLD_CFG;
                 const currentElev = r_elevation[r];
                 if (currentElev > DISSECT_THRESHOLD) {
                     const elevExcess = currentElev - DISSECT_THRESHOLD;
@@ -1070,8 +1141,8 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     );
                     // Elevation-driven dissection: tall terrain always gets valley carving,
                     // with stress adding extra intensity near boundaries
-                    const elevDrive = Math.min(1, Math.sqrt(elevExcess) * 2);
-                    const dissectAmp = Math.sqrt(elevExcess) * Math.max(elevDrive, stressNorm) * noiseMag * 0.4;
+                    const elevDrive = Math.min(1, Math.sqrt(elevExcess) * DISSECT_ELEV_SCALE);
+                    const dissectAmp = Math.sqrt(elevExcess) * Math.max(elevDrive, stressNorm) * noiseMag * DISSECT_AMP;
                     const dissectContrib = dissectVal * dissectAmp;
                     r_elevation[r] += dissectContrib;
                     dl_noise[r] += dissectContrib;
@@ -1083,17 +1154,17 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // threshold so only occasional points jut upward.  Base orogeny
             // caps around 4-5 km; only these peaks can push toward 6 km.
             {
-                const SUMMIT_THRESHOLD = 0.65;  // ~2.6 km
+                const SUMMIT_THRESHOLD = SUMMIT_THRESHOLD_CFG;  // ~2.6 km
                 const currentElev = r_elevation[r];
-                if (currentElev > SUMMIT_THRESHOLD && stressNorm > 0.05) {
+                if (currentElev > SUMMIT_THRESHOLD && stressNorm > SUMMIT_STRESS_MIN) {
                     const excess = currentElev - SUMMIT_THRESHOLD;
                     // Ridged noise at high frequency — sharp, spiky features
                     const peakNoise = noise.ridgedFbm(
                         wx * 24 + 91.3, wy * 24 + 55.7, wz * 24 + 38.2, 3, 0.5
                     );
                     // Only the highest peaks of the noise create summits
-                    const spike = Math.max(0, peakNoise - 0.45);
-                    const peakContrib = spike * excess * Math.max(stressNorm, 0.3) * 1.0;
+                    const spike = Math.max(0, peakNoise - SUMMIT_SPIKE_OFFSET);
+                    const peakContrib = spike * excess * Math.max(stressNorm, SUMMIT_STRESS_FLOOR) * 1.0;
                     r_elevation[r] += peakContrib;
                     dl_noise[r] += peakContrib;
                 }
@@ -1109,9 +1180,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 // only applies when the mountain is BETWEEN the cell and the coast
                 // (dMtn < lcd), meaning the cell is behind the orogen, not in front of it.
                 let mountainBoost = 0;
-                if (dMtn !== Infinity && sf < 0.50 && dMtn < lcd) {
+                if (dMtn !== Infinity && sf < BACK_ARC_SUBDUCT_THRESH && dMtn < lcd) {
                     const proximity = Math.max(0, 1 - dMtn / Math.max(1, tectonicReach));
-                    mountainBoost = proximity * interiorBand * 0.3;
+                    mountainBoost = proximity * interiorBand * MOUNTAIN_BOOST_FRAC;
                 }
                 const effectiveLcd = lcd + mountainBoost;
 
@@ -1119,21 +1190,18 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const tDown = Math.min(effectiveLcd / interiorBand, 1);
                 const sDown = tDown * tDown * (3 - 2 * tDown);
                 // Uplift: reaches plateau much sooner (40% of band)
-                const tUp = Math.min(effectiveLcd / (interiorBand * 0.4), 1);
+                const tUp = Math.min(effectiveLcd / (interiorBand * INTERIOR_UPLIFT_RAMP_FRAC), 1);
                 const sUp = tUp * tUp * (3 - 2 * tUp);
                 // Basin/shield modulated uplift: shields higher, basins flatter.
                 const bf = r_basinFactor[r];
-                const INTERIOR_BASE_SHIELD = 0.10;
-                const INTERIOR_BASE_BASIN  = 0.06;
-                const INTERIOR_TECTONIC = 0.16;
                 const interiorBase = INTERIOR_BASE_SHIELD * (1 - bf) + INTERIOR_BASE_BASIN * bf;
                 const interiorUplift = interiorBase + tectonicActivity * INTERIOR_TECTONIC;
                 // Coastal depression: reduced in basins to prevent pockmarks
                 // (basins have less uplift to compensate, so depression must also be less)
-                const coastalDepression = -0.08 * (1 - bf * 0.4);
+                const coastalDepression = COASTAL_DEPRESSION * (1 - bf * COASTAL_DEPRESSION_BASIN_REDUCE);
                 const baseBias = coastalDepression * (1 - sDown) + interiorUplift * sUp;
                 // Low-freq noise modulation: 80%–120% of bias
-                const mod = 1.0 + 0.2 * noise.fbm(x * 2 + 19.3, y * 2 + 7.6, z * 2 + 13.1, 2);
+                const mod = 1.0 + INTERIOR_UPLIFT_MOD_AMP * noise.fbm(x * 2 + 19.3, y * 2 + 7.6, z * 2 + 13.1, 2);
                 const bias = baseBias * mod;
                 r_elevation[r] += bias;
                 dl_interior[r] = bias;
@@ -1141,7 +1209,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             // Plateau uplift boost: modest extra elevation on overriding side behind collisions
             if (isPlateauZone && tectonicActivity > 0.1) {
-                const plateauBoost = 0.025 * tectonicActivity * (1 - sf);
+                const plateauBoost = PLATEAU_BOOST * tectonicActivity * (1 - sf);
                 r_elevation[r] += plateauBoost;
                 dl_interior[r] += plateauBoost;
             }
@@ -1154,8 +1222,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 if (lcd < coastPlainWidth && dBdry[r] <= maxCD && !coastConvergent[r]) {
                     const t = lcd / coastPlainWidth;
                     const fade = t * t * (3 - 2 * t); // smoothstep: full at coast, zero at width
-                    const PLAIN_TARGET = 0.02;
-                    const suppressionStrength = 0.6 * (1 - fade);
+                    const suppressionStrength = PLAIN_SUPPRESSION_STRENGTH * (1 - fade);
                     if (r_elevation[r] > PLAIN_TARGET) {
                         const excess = r_elevation[r] - PLAIN_TARGET;
                         const suppression = excess * suppressionStrength;
@@ -1170,7 +1237,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // gradients. Further inland, enforce a minimum to prevent "great lake" artifacts
             // from compounding negative fold/noise/basin contributions.
             {
-                const INTERIOR_FLOOR = 0.008;
+                // Interior floor
                 const floorRamp = Math.min(1, lcd / (5 * scaleFactor));
                 const minElev = INTERIOR_FLOOR * floorRamp;
                 if (r_elevation[r] < minElev) r_elevation[r] = minElev;
@@ -1182,9 +1249,6 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Active margins (subduction coasts): narrow shelf, steep slope.
             // Passive margins (trailing edges): wide shelf, gradual slope.
             const isActiveMarginShelf = coastConvergent[r] === 1;
-            const SHELF_NARROW_BASE = 4;
-            const SHELF_WIDE_BASE   = 12;
-            const SLOPE_WIDTH_BASE  = 7;
             const shelfWidth = isActiveMarginShelf
                 ? Math.max(2, Math.round(SHELF_NARROW_BASE * scaleFactor))
                 : Math.max(4, Math.round(SHELF_WIDE_BASE * scaleFactor));
@@ -1194,12 +1258,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             let oceanBase;
             if (dc < shelfWidth) {
                 // Continental shelf: -0.08 at coast edge, down to -0.16 at shelf break
-                oceanBase = -0.08 - 0.08 * (dc / shelfWidth);
+                oceanBase = SHELF_DEPTH_START - SHELF_DEPTH_RANGE * (dc / shelfWidth);
             } else if (dc < totalMargin) {
                 // Continental slope: -0.16 down to -0.35
-                oceanBase = -0.16 - 0.19 * ((dc - shelfWidth) / slopeWidth);
+                oceanBase = (SHELF_DEPTH_START - SHELF_DEPTH_RANGE) - SLOPE_DEPTH_RANGE * ((dc - shelfWidth) / slopeWidth);
             } else {
-                oceanBase = -0.35 + noise.fbm(x * 2, y * 2, z * 2, 3) * 0.03;
+                oceanBase = ABYSS_BASE + noise.fbm(x * 2, y * 2, z * 2, 3) * ABYSS_NOISE_AMP;
             }
 
             r_elevation[r] = Math.min(r_elevation[r], oceanBase);
@@ -1220,7 +1284,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const t = rd / ridgeHalfWidth;
                 const ridgeFade = (1 - t) * (1 - t);
                 const ridgeNoise = noise.ridgedFbm(x * 3, y * 3, z * 3, 4);
-                const ridgeUplift = (0.12 * ridgeNoise + 0.06) * ridgeFade;
+                const ridgeUplift = (RIDGE_UPLIFT_NOISE * ridgeNoise + RIDGE_UPLIFT_BASE) * ridgeFade;
                 r_elevation[r] += ridgeUplift;
             }
 
@@ -1229,12 +1293,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             if (fd !== Infinity && fd <= fractureHalfWidth) {
                 const ft = fd / fractureHalfWidth;
                 const fractureFade = 1 - ft;
-                r_elevation[r] -= 0.03 * fractureFade;
+                r_elevation[r] -= FRACTURE_DEPTH * fractureFade;
             }
 
             // Trenches at convergent boundaries
             if (btype === 1) {
-                r_elevation[r] -= 0.15 + 0.15 * stressNorm;
+                r_elevation[r] -= TRENCH_BASE_DEPTH + TRENCH_STRESS_DEPTH * stressNorm;
             }
 
             // Back-arc basin: deepen ocean floor behind subduction zones
@@ -1249,11 +1313,11 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     if (bad <= baPeak) {
                         const t = (bad - baStart) / Math.max(1, baPeak - baStart);
                         const s = t * t * (3 - 2 * t);
-                        baEffect = -0.10 * backArcStress[r] * s * orogenyFactor;
+                        baEffect = -BACK_ARC_DEPTH * backArcStress[r] * s * orogenyFactor;
                     } else if (bad <= baEnd) {
                         const t = (bad - baPeak) / Math.max(1, baEnd - baPeak);
                         const s = t * t * (3 - 2 * t);
-                        baEffect = -0.10 * backArcStress[r] * (1 - s) * orogenyFactor;
+                        baEffect = -BACK_ARC_DEPTH * backArcStress[r] * (1 - s) * orogenyFactor;
                     }
                     r_elevation[r] += baEffect;
                     dl_backArc[r] = baEffect;
@@ -1262,14 +1326,14 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             dl_tectonic[r] = r_elevation[r] - elevBeforeOcTec;
 
-            const oceanNoise = noise.fbm(wx, wy, wz) * noiseMag * 0.3;
+            const oceanNoise = noise.fbm(wx, wy, wz) * noiseMag * OCEAN_NOISE_AMP;
             r_elevation[r] += oceanNoise;
             dl_noise[r] = oceanNoise;
 
             // Clamp ocean-plate cells below sea level after all ocean-branch processing.
             // Only intentional features after the main loop (island scatter, island arcs,
             // hotspots) may push ocean cells above 0.
-            if (r_elevation[r] > -0.005) r_elevation[r] = -0.005;
+            if (r_elevation[r] > OCEAN_FLOOR_CLAMP) r_elevation[r] = OCEAN_FLOOR_CLAMP;
         }
     }
 
@@ -1277,7 +1341,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     // Coastal roughening (uses hoisted coastBdry BFS data: dBdry, coastStressMax, etc.)
     {
-        const coastRoughenDist = Math.max(8, Math.round(8 * scaleFactor));
+        const coastRoughenDist = Math.max(8, Math.round(COAST_ROUGHEN_BASE * scaleFactor));
         const cNoise  = new SimplexNoise(seed + 77);
         const cNoise2 = new SimplexNoise(seed + 133);
         const cNoise3 = new SimplexNoise(seed + 211);
@@ -1291,9 +1355,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             const isSubductingOcean = r_isOcean[r]
                 && coastConvergent[r]
-                && coastSubductMax[r] > 0.45;
+                && coastSubductMax[r] > COAST_SUBDUCT_SUP_LOW;
             const subSup = isSubductingOcean
-                ? Math.min(1, (coastSubductMax[r] - 0.45) / 0.55)
+                ? Math.min(1, (coastSubductMax[r] - COAST_SUBDUCT_SUP_LOW) / COAST_SUBDUCT_SUP_RANGE)
                 : 0;
 
             const elevBeforeCoast = r_elevation[r];
@@ -1304,8 +1368,8 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Active: higher freq + amp → rugged, fjord-like
             const falloff1 = (1 - t) * (1 - t);
             const stressAmp1 = 1 + sn * 5;
-            const coastFreq = isPassiveCoast ? 6 : 9;
-            const coastAmp = isPassiveCoast ? 0.08 : 0.12;
+            const coastFreq = isPassiveCoast ? COAST_PASSIVE_FREQ : COAST_ACTIVE_FREQ;
+            const coastAmp = isPassiveCoast ? COAST_PASSIVE_AMP : COAST_ACTIVE_AMP;
             let n1 = cNoise.fbm(x * coastFreq + 3.7, y * coastFreq + 7.1, z * coastFreq + 2.3, 5, 0.55);
             let coastNoise1 = n1 * coastAmp * falloff1 * stressAmp1;
             if (subSup > 0 && coastNoise1 > 0) {
@@ -1315,10 +1379,10 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             // Layer 3: Coastline-aware domain warping
             // Passive: wider influence (warp dies slower). Active: concentrated near coast.
-            const warpReach = isPassiveCoast ? 1.2 : 1.5;
+            const warpReach = isPassiveCoast ? COAST_WARP_PASSIVE_REACH : COAST_WARP_ACTIVE_REACH;
             const falloffW = Math.max(0, 1 - t * warpReach);
             if (falloffW > 0) {
-                const warpAmt = 0.35 * falloffW * (1 + sn * 2);
+                const warpAmt = COAST_WARP_AMT * falloffW * (1 + sn * 2);
                 const dwx = cNoise3.fbm(x * 3 + 11.3, y * 3 + 4.7, z * 3 + 8.2, 3, 0.6) * warpAmt;
                 const dwy = cNoise3.fbm(x * 3 + 2.9,  y * 3 + 9.4, z * 3 + 1.6, 3, 0.6) * warpAmt;
                 const dwz = cNoise3.fbm(x * 3 + 7.5,  y * 3 + 0.3, z * 3 + 5.9, 3, 0.6) * warpAmt;
@@ -1334,21 +1398,21 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             // Clamp ocean-plate cells: coastal noise (layers 1 & 3) should roughen
             // the coastline but not create false land on ocean plates.
             // Only the intentional island scatter below may push ocean cells above 0.
-            if (r_isOcean[r] && r_elevation[r] > -0.005) {
-                r_elevation[r] = -0.005;
+            if (r_isOcean[r] && r_elevation[r] > OCEAN_FLOOR_CLAMP) {
+                r_elevation[r] = OCEAN_FLOOR_CLAMP;
             }
 
             // Layer 2: Island scattering (original behavior — kept conservative to avoid false land)
             if (r_isOcean[r] && dBdry[r] > 0
-                && dBdry[r] <= Math.max(4, Math.round(4 * scaleFactor))
-                && subSup < 0.3) {
-                const islandN = cNoise2.fbm(x * 17.5 + 5.1, y * 17.5 + 9.3, z * 17.5 + 2.7, 4, 0.5);
-                const threshold = 0.25 - sn * 0.2;
+                && dBdry[r] <= Math.max(4, Math.round(ISLAND_DIST_BASE * scaleFactor))
+                && subSup < ISLAND_SUBDUCT_MAX) {
+                const islandN = cNoise2.fbm(x * ISLAND_FREQ + 5.1, y * ISLAND_FREQ + 9.3, z * ISLAND_FREQ + 2.7, 4, 0.5);
+                const threshold = ISLAND_THRESHOLD_BASE - sn * ISLAND_THRESHOLD_STRESS;
                 if (islandN > threshold) {
                     const excess = (islandN - threshold) / (1 - threshold);
-                    const distFade = 1 - (dBdry[r] / Math.max(4, Math.round(4 * scaleFactor)));
-                    let bump = excess * excess * 0.18 * (1 + sn * 2) * distFade;
-                    bump *= (1 - subSup / 0.3);
+                    const distFade = 1 - (dBdry[r] / Math.max(4, Math.round(ISLAND_DIST_BASE * scaleFactor)));
+                    let bump = excess * excess * ISLAND_BUMP_AMP * (1 + sn * 2) * distFade;
+                    bump *= (1 - subSup / ISLAND_SUBDUCT_MAX);
                     r_elevation[r] += bump;
                 }
             }
@@ -1362,7 +1426,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // Island arcs — ocean-ocean convergent boundary uplift
     {
         const arcNoise = new SimplexNoise(seed + 307);
-        const maxArcDist = Math.max(5, Math.round(5 * scaleFactor));
+        const maxArcDist = Math.max(5, Math.round(ARC_DIST_BASE * scaleFactor));
 
         const arcSeeds = [];
         const arcDist = new Float32Array(numRegions);
@@ -1370,7 +1434,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         const arcStress = new Float32Array(numRegions);
 
         for (let r = 0; r < numRegions; r++) {
-            if (r_boundaryType[r] === 1 && r_bothOcean[r] && r_subductFactor[r] < 0.45) {
+            if (r_boundaryType[r] === 1 && r_bothOcean[r] && r_subductFactor[r] < ARC_SUBDUCT_THRESH) {
                 arcSeeds.push(r);
                 arcDist[r] = 0;
                 arcStress[r] = Math.min(1, r_stress[r] / maxStress);
@@ -1399,15 +1463,15 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
             const x = r_xyz[3*r], y = r_xyz[3*r+1], z = r_xyz[3*r+2];
 
-            const peakDist = Math.max(1.5, 1.5 * scaleFactor);
-            const sigma = Math.max(1.5, 1.5 * scaleFactor);
+            const peakDist = Math.max(ARC_PEAK_DIST_BASE, ARC_PEAK_DIST_BASE * scaleFactor);
+            const sigma = Math.max(ARC_SIGMA_BASE_VAL, ARC_SIGMA_BASE_VAL * scaleFactor);
             const distWeight = Math.exp(-0.5 * ((d - peakDist) / sigma) ** 2);
 
             const n = arcNoise.ridgedFbm(x * 4, y * 4, z * 4, 4, 2.0, 0.5, 1.0);
-            const threshold = 0.30;
+            const threshold = ARC_THRESHOLD;
             if (n > threshold) {
                 const excess = (n - threshold) / (1 - threshold);
-                let uplift = excess * excess * 0.55 * distWeight * (0.5 + arcStress[r]);
+                let uplift = excess * excess * ARC_UPLIFT_AMP * distWeight * (0.5 + arcStress[r]);
                 // On ocean plates, cap uplift so arcs form small islands, not broad land
                 if (r_isOcean[r]) {
                     const maxOceanUplift = Math.max(0, -r_elevation[r] + 0.03);
@@ -1425,16 +1489,13 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // Placed at quasi-regular spacing along convergent boundaries where one plate is oceanic.
     {
         const arcVolcNoise = new SimplexNoise(seed + 713);
-        const VOLC_MIN_SPACING = 0.015;    // ~100km minimum angular distance between volcanoes
         const VOLC_MIN_SPACING_SQ = VOLC_MIN_SPACING * VOLC_MIN_SPACING;
-        const VOLC_SIGMA_BASE = 0.003;     // edifice angular radius (~20km)
-        const VOLC_HEIGHT_BASE = 0.15;
 
         // Collect candidate cells at ocean-continent convergent boundaries (overriding side)
         const candidates = [];
         for (let r = 0; r < numRegions; r++) {
             if (r_boundaryType[r] === 1 && r_hasOcean[r] && !r_bothOcean[r]
-                && r_subductFactor[r] < 0.45) {
+                && r_subductFactor[r] < VOLC_SUBDUCT_THRESH) {
                 const stressLocal = Math.min(1, r_stress[r] / maxStress);
                 // Score by stress + noise for selection priority
                 const x = r_xyz[3 * r], y = r_xyz[3 * r + 1], z = r_xyz[3 * r + 2];
@@ -1458,9 +1519,9 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             }
             if (tooClose) continue;
 
-            const heightVar = 0.7 + 0.6 * arcVolcNoise.noise3D(c.x * 10, c.y * 10, c.z * 10);
+            const heightVar = VOLC_HEIGHT_VAR_BASE + VOLC_HEIGHT_VAR_RANGE * arcVolcNoise.noise3D(c.x * 10, c.y * 10, c.z * 10);
             const height = VOLC_HEIGHT_BASE * (0.5 + c.stressLocal) * heightVar;
-            const sigmaVar = 0.6 + 0.8 * arcVolcNoise.noise3D(c.x * 5 + 17.3, c.y * 5 + 9.1, c.z * 5 + 4.7);
+            const sigmaVar = VOLC_SIGMA_VAR_BASE + VOLC_SIGMA_VAR_RANGE * arcVolcNoise.noise3D(c.x * 5 + 17.3, c.y * 5 + 9.1, c.z * 5 + 4.7);
             volcPositions.push({ x: c.x, y: c.y, z: c.z, height, sigma: VOLC_SIGMA_BASE * sigmaVar });
         }
 
@@ -1490,8 +1551,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     {
         const lipRng = makeRng(seed + 821);
         const NUM_LIPS = Math.round(1 + lipRng() * 2);  // 1-3 LIPs
-        const LIP_SIGMA = 0.025;   // ~250km angular radius
-        const LIP_HEIGHT = 0.04;
+        // LIP_SIGMA ~250km angular radius, LIP_HEIGHT imported from config
 
         const lips = [];
         for (let i = 0; i < NUM_LIPS; i++) {
@@ -1543,15 +1603,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // domain-warped shape distortion, age-dependent texture, drift
     // elongation, summit calderas, and radial rift-zone ridges.
     {
-        const NUM_HOTSPOTS = 5;
-        const CHAIN_LENGTH = 6;
-        const CHAIN_DECAY  = 0.75;
-        const CHAIN_SPACING = 0.06;
-        const DOME_SIGMA   = 0.006;
-        const DOME_STRENGTH = 0.60;
-
-        const SWELL_SIGMA_MULT = 2;    // swell is 2x wider than peak (was 3)
-        const SWELL_STR_MULT   = 0.10; // swell is 10% the peak strength
+        // Hotspot constants imported from terrain-config.js
 
         const hsRng = makeRng(seed + 999);
         const hsNoise  = new SimplexNoise(seed + 501);
@@ -1609,7 +1661,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             drift[0] /= driftLen; drift[1] /= driftLen; drift[2] /= driftLen;
 
             const isOceanHotspot = plateIsOcean.has(plate);
-            const oceanBoost = isOceanHotspot ? 1.8 : 1.0;
+            const oceanBoost = isOceanHotspot ? DOME_OCEAN_BOOST : 1.0;
 
             // Rift angles: 2-3 evenly spaced rifts for active dome, fewer for older
             const baseRiftAngle = hsNoise3.noise3D(hx*10, hy*10, hz*10) * Math.PI;
@@ -1650,7 +1702,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 baseStr *= decayJitter;
                 const stepSpacing = CHAIN_SPACING * (0.3 + hsRng() * 1.4);
                 // #4: age broadening — older domes get wider
-                const ageBroadening = 1.0 + ci * 0.06;
+                const ageBroadening = 1.0 + ci * DOME_AGE_BROADENING;
                 const stepSigma = hSigma * (0.5 + hsRng() * 1.0) * ageBroadening;
                 const wobble = (hsRng() - 0.5) * 0.8;
                 const ddx = -drift[0] + perpX * wobble;
@@ -1686,21 +1738,21 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         for (let d = 0; d < domes.length; d++) {
             const dm = domes[d];
             // Peak threshold — 5.5σ (slight increase from 5 for drift elongation)
-            dm.cosThreshPeak = Math.cos(dm.sigma * 5.5);
+            dm.cosThreshPeak = Math.cos(dm.sigma * DOME_PEAK_THRESH_SIGMA);
             dm.invS2 = -0.5 / (dm.sigma * dm.sigma);
             // Swell uses base strength (no ocean boost) so it doesn't
             // broadly raise ocean floor — only peaks punch through.
             const swSigma = dm.sigma * SWELL_SIGMA_MULT;
             dm.swellSigma = swSigma;
             dm.swellStrength = dm.baseStrength * SWELL_STR_MULT;
-            dm.cosThreshSwell = Math.cos(swSigma * 3);
+            dm.cosThreshSwell = Math.cos(swSigma * DOME_SWELL_THRESH_SIGMA);
             dm.invS2Swell = -0.5 / (swSigma * swSigma);
             // #5: drift elongation scale factor (1/1.4 for parallel axis)
-            dm.driftStretch = 1.0 / 1.4;
+            dm.driftStretch = 1.0 / DOME_DRIFT_STRETCH;
             // #6: caldera (only on active or most recent chain member with enough strength)
-            dm.hasCaldera = dm.chainIndex <= 1 && dm.strength > 0.15;
-            dm.calderaSigma = dm.sigma * 0.25;
-            dm.calderaDepth = dm.strength * 0.20;
+            dm.hasCaldera = dm.chainIndex <= 1 && dm.strength > DOME_CALDERA_STRENGTH_MIN;
+            dm.calderaSigma = dm.sigma * DOME_CALDERA_SIGMA_FRAC;
+            dm.calderaDepth = dm.strength * DOME_CALDERA_DEPTH_FRAC;
             dm.invS2Caldera = -0.5 / (dm.calderaSigma * dm.calderaSigma);
             // Age factor for texture (0 = active = most textured, 1 = oldest = smooth)
             dm.ageFactor = dm.chainLength > 0 ? dm.chainIndex / dm.chainLength : 0;
@@ -1728,12 +1780,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             let shapeWarp = 1.0, shapeWarpSq = 1.0;
             if (nearPeak) {
                 // #2: domain-warped fbm for aggressive shape distortion
-                const warpScale = 8;
-                const wx = hsNoise2.fbm(rx * warpScale + 5.1, ry * warpScale + 3.7, rz * warpScale + 9.2, 2, 0.5) * 0.4;
-                const wy = hsNoise2.fbm(rx * warpScale + 11.3, ry * warpScale + 7.1, rz * warpScale + 2.9, 2, 0.5) * 0.4;
-                const wz = hsNoise2.fbm(rx * warpScale + 1.7, ry * warpScale + 13.5, rz * warpScale + 6.4, 2, 0.5) * 0.4;
-                shapeWarp = 1.0 + 0.40 * hsNoise.fbm(
-                    (rx + wx) * 20 + 3.2, (ry + wy) * 20 + 7.8, (rz + wz) * 20 + 1.5, 4, 0.5
+                const hsWarpScale = DOME_SHAPE_WARP_FREQ;
+                const wx = hsNoise2.fbm(rx * hsWarpScale + 5.1, ry * hsWarpScale + 3.7, rz * hsWarpScale + 9.2, 2, 0.5) * DOME_SHAPE_WARP_AMP;
+                const wy = hsNoise2.fbm(rx * hsWarpScale + 11.3, ry * hsWarpScale + 7.1, rz * hsWarpScale + 2.9, 2, 0.5) * DOME_SHAPE_WARP_AMP;
+                const wz = hsNoise2.fbm(rx * hsWarpScale + 1.7, ry * hsWarpScale + 13.5, rz * hsWarpScale + 6.4, 2, 0.5) * DOME_SHAPE_WARP_AMP;
+                shapeWarp = 1.0 + DOME_SHAPE_WARP_DETAIL_AMP * hsNoise.fbm(
+                    (rx + wx) * DOME_SHAPE_WARP_DETAIL_FREQ + 3.2, (ry + wy) * DOME_SHAPE_WARP_DETAIL_FREQ + 7.8, (rz + wz) * DOME_SHAPE_WARP_DETAIL_FREQ + 1.5, 4, 0.5
                 );
                 shapeWarpSq = shapeWarp * shapeWarp;
             }
@@ -1780,7 +1832,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                         const riftFactor = c2 * c2 * c2 * c2; // cos^4 for tighter ridges
                         if (riftFactor > maxRift) maxRift = riftFactor;
                     }
-                    gauss *= (1.0 + 0.5 * maxRift);
+                    gauss *= (1.0 + DOME_RIFT_BOOST * maxRift);
                 }
 
                 const peakUplift = dm.strength * gauss;
@@ -1802,12 +1854,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 // #3: age-dependent volcanic texture
                 const age = ageWeightSum > 0 ? weightedAge / ageWeightSum : 0;
                 // Active: dramatic gullies (0.4-1.2); Old: smooth eroded (0.7-1.0)
-                const texBase = 0.7 * hsNoise.ridgedFbm(rx * 12, ry * 12, rz * 12, 4, 2.0, 0.5, 1.0);
-                const texDetail = 0.3 * hsNoise.ridgedFbm(rx * 30, ry * 30, rz * 30, 3, 2.0, 0.5, 1.0);
+                const texBase = DOME_TEXTURE_BASE_WEIGHT * hsNoise.ridgedFbm(rx * 12, ry * 12, rz * 12, 4, 2.0, 0.5, 1.0);
+                const texDetail = DOME_TEXTURE_DETAIL_WEIGHT * hsNoise.ridgedFbm(rx * 30, ry * 30, rz * 30, 3, 2.0, 0.5, 1.0);
                 const texRaw = texBase + texDetail;
                 // Blend texture range based on age
-                const texMin = 0.4 + age * 0.3;   // 0.4 (active) → 0.7 (old)
-                const texMax = 1.2 - age * 0.2;   // 1.2 (active) → 1.0 (old)
+                const texMin = DOME_TEXTURE_ACTIVE_MIN + age * DOME_TEXTURE_AGE_MIN_SHIFT;   // 0.4 (active) → 0.7 (old)
+                const texMax = DOME_TEXTURE_ACTIVE_MAX - age * DOME_TEXTURE_AGE_MAX_SHIFT;   // 1.2 (active) → 1.0 (old)
                 const volc = texMin + (texMax - texMin) * texRaw;
 
                 // Apply texture only to peak component; swell is smooth
@@ -1823,7 +1875,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // Compress positive elevations to soften tall peaks
     for (let r = 0; r < numRegions; r++) {
         if (r_elevation[r] > 0) {
-            r_elevation[r] = Math.pow(r_elevation[r], 0.85);
+            r_elevation[r] = Math.pow(r_elevation[r], PEAK_COMPRESS_POWER);
         }
     }
 
@@ -1832,7 +1884,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // Isostatic adjustment: Airy isostasy compresses elevation extremes.
     // Tall mountains sink slightly under their own weight, deep basins are buoyed.
     {
-        const ISOSTATIC_K = 0.07;
+        // Isostatic adjustment
         for (let r = 0; r < numRegions; r++) {
             const e = r_elevation[r];
             r_elevation[r] = e - Math.abs(e) * e * ISOSTATIC_K;
@@ -1856,23 +1908,23 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             const range = maxLandElev - minLandElev;
 
             if (range > 0.01) {
-                const HYPS_BLEND = 0.40;
+                // Hypsometric curve shaping
                 for (let i = 0; i < n; i++) {
                     const r = landRegions[i];
                     const rank = i / (n - 1); // 0 to 1 percentile
 
                     // Target elevation percentile from hypsometric curve
                     let targetPct;
-                    if (rank < 0.60) {
+                    if (rank < HYPS_LOW_BREAK) {
                         // Low plains: 60% of area in bottom 25% of elevation range
-                        targetPct = 0.25 * (rank / 0.60);
-                    } else if (rank < 0.85) {
+                        targetPct = HYPS_LOW_ELEV_FRAC * (rank / HYPS_LOW_BREAK);
+                    } else if (rank < HYPS_MID_BREAK) {
                         // Moderate highlands
-                        targetPct = 0.25 + 0.35 * ((rank - 0.60) / 0.25);
+                        targetPct = HYPS_LOW_ELEV_FRAC + HYPS_MID_ELEV_FRAC * ((rank - HYPS_LOW_BREAK) / (HYPS_MID_BREAK - HYPS_LOW_BREAK));
                     } else {
                         // Mountain peaks: power curve for rare tall peaks
-                        const t = (rank - 0.85) / 0.15;
-                        targetPct = 0.60 + 0.40 * Math.pow(t, 0.7);
+                        const t = (rank - HYPS_MID_BREAK) / (1 - HYPS_MID_BREAK);
+                        targetPct = (HYPS_LOW_ELEV_FRAC + HYPS_MID_ELEV_FRAC) + (1 - HYPS_LOW_ELEV_FRAC - HYPS_MID_ELEV_FRAC) * Math.pow(t, HYPS_HIGH_POWER);
                     }
 
                     const targetElev = minLandElev + targetPct * range;
@@ -1910,7 +1962,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             }
         }
         // Raise unvisited below-sea-level land-plate cells
-        const FILL_LEVEL = 0.005;
+        // Fill level imported from config
         for (let r = 0; r < numRegions; r++) {
             if (!r_isOcean[r] && !visited[r] && r_elevation[r] <= 0) {
                 r_elevation[r] = FILL_LEVEL;

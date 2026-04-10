@@ -4,6 +4,22 @@
 // drainage patterns.
 
 import { SimplexNoise } from './simplex-noise.js';
+import {
+    FLOOD_NOISE_AMP, FLOOD_CARVE_RADIUS_FRAC,
+    WARP_FREQ, WARP_OCTAVES, WARP_MAX_AMP_MULT,
+    WARP_BIAS_BASE, WARP_BIAS_STRENGTH_SCALE, WARP_HOTSPOT_DAMPEN,
+    SMOOTH_EDGE_SENSITIVITY,
+    GLACIAL_LAT_DIVISOR, GLACIAL_ELEV_LOW, GLACIAL_ELEV_HIGH,
+    GLACIAL_ELEV_FACTOR_SCALE, GLACIAL_ELEV_FACTOR_LAT_BASE, GLACIAL_ELEV_FACTOR_LAT_SCALE,
+    GLACIAL_CARVE_RATE, GLACIAL_CONVERGENCE_BONUS, GLACIAL_DEPOSIT_AMOUNT,
+    GLACIAL_FJORD_CARVE, GLACIAL_FLOW_THRESHOLD, GLACIAL_FJORD_THRESHOLD,
+    GLACIAL_WIDENING_FRAC, GLACIAL_TERMINUS_RATIO, GLACIAL_FJORD_ICE_MIN,
+    GLACIAL_POST_SMOOTH, GLACIAL_MID_FLOOD_FRAC, GLACIAL_MID_FLOOD_CARVE,
+    GLACIAL_INITIAL_CARVE,
+    HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY,
+    THERMAL_TRANSFER_FRAC,
+    RIDGE_SHARPEN_CAP, VALLEY_DEEPEN_FACTOR, VALLEY_FLOOR_FRAC, VALLEY_FLOOR_MIN,
+} from './terrain-config.js';
 
 /**
  * Inline binary min-heap keyed on an external Float32Array of priorities.
@@ -96,7 +112,7 @@ function priorityFloodCarve(mesh, r_elevation, r_isOcean, carveStrength) {
     // --- Deterministic hash for noise perturbation (meander paths) ---
     // Small noise on priority keys makes the flood front irregular,
     // producing winding drainage paths instead of straight lines
-    const NOISE_AMP = 0.01; // amplitude relative to typical elevation range
+    const NOISE_AMP = FLOOD_NOISE_AMP; // amplitude relative to typical elevation range
     function cellNoise(r) {
         let h = (r * 2654435761) >>> 0; // Knuth multiplicative hash
         h = ((h >>> 16) ^ h) * 0x45d9f3b >>> 0;
@@ -172,7 +188,7 @@ function priorityFloodCarve(mesh, r_elevation, r_isOcean, carveStrength) {
 
         // Carve: lower cells near the peak using a triangle kernel
         const carveAmount = deficit * carveStrength;
-        const radius = Math.max(3, Math.ceil(path.length * 0.3));
+        const radius = Math.max(3, Math.ceil(path.length * FLOOD_CARVE_RADIUS_FRAC));
         const startIdx = Math.max(0, peakIdx - radius);
         const endIdx = Math.min(path.length - 1, peakIdx + radius);
 
@@ -236,9 +252,9 @@ export function warpTerrain(mesh, r_elevation, r_xyz, seed, strength, r_hotspot)
     const N = mesh.numRegions;
     const { adjOffset, adjList } = mesh;
     const noise = new SimplexNoise(seed + 9999);
-    const freq = 4;
-    const octaves = 5;
-    const maxAmp = 0.12 * strength; // radians (~760 km at Earth scale when strength=1)
+    const freq = WARP_FREQ;
+    const octaves = WARP_OCTAVES;
+    const maxAmp = WARP_MAX_AMP_MULT * strength; // radians (~760 km at Earth scale when strength=1)
 
     const out = new Float32Array(r_elevation);
 
@@ -291,14 +307,14 @@ export function warpTerrain(mesh, r_elevation, r_xyz, seed, strength, r_hotspot)
     // Weighted max: pick whichever is larger, biased by strength
     // At strength≈0 → 75% original, at strength=1 → 75% warped
     // Dampen near hotspots so volcanic peaks keep their sculpted shape
-    const warpBias = 0.25 + 0.5 * strength;
+    const warpBias = WARP_BIAS_BASE + WARP_BIAS_STRENGTH_SCALE * strength;
     for (let r = 0; r < N; r++) {
         const orig = r_elevation[r];
         const warped = out[r];
         let bias = warpBias;
         if (r_hotspot) {
             const hotFrac = Math.min(1, Math.abs(r_hotspot[r]) / (Math.abs(orig) || 1));
-            bias *= 1 - 0.8 * hotFrac;
+            bias *= 1 - WARP_HOTSPOT_DAMPEN * hotFrac;
         }
         if (warped > orig) {
             r_elevation[r] = orig + (warped - orig) * bias;
@@ -337,7 +353,7 @@ export function smoothElevation(mesh, r_elevation, r_isOcean, iterations, streng
             for (let i = adjOffset[r], iEnd = adjOffset[r + 1]; i < iEnd; i++) {
                 const nh = r_elevation[adjList[i]];
                 const diff = Math.abs(nh - h);
-                const w = 1 / (1 + diff * 8);
+                const w = 1 / (1 + diff * SMOOTH_EDGE_SENSITIVITY);
                 wSum += w;
                 hSum += nh * w;
             }
@@ -398,7 +414,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     // Priority-flood pit resolution: ensure every land cell drains to ocean
     // before hydraulic erosion begins. Carves canyons through spill points.
     if (hIters > 0) {
-        priorityFloodCarve(mesh, r_elevation, r_isOcean, 0.5);
+        priorityFloodCarve(mesh, r_elevation, r_isOcean, GLACIAL_INITIAL_CARVE);
     }
 
     // ---- Glacial precomputation (once — index is position-based) ----
@@ -415,16 +431,16 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
 
         glacIdx = new Float32Array(N);
         // At strength=1 glaciation starts at ~50° latitude; at 0.5 it starts at ~70°
-        const thresholdLat = Math.PI / 2 - glacialStrength * Math.PI / 4.5;
+        const thresholdLat = Math.PI / 2 - glacialStrength * Math.PI / GLACIAL_LAT_DIVISOR;
 
         for (let r = 0; r < N; r++) {
             if (r_isOcean[r]) continue;
             const y = r_xyz[3 * r + 1];
             const polarDist = Math.abs(Math.asin(Math.max(-1, Math.min(1, y))));
             const latFactor = smoothstep(polarDist, thresholdLat, Math.PI / 2);
-            const elevFactor = smoothstep(r_elevation[r], 0.5, 0.9);
+            const elevFactor = smoothstep(r_elevation[r], GLACIAL_ELEV_LOW, GLACIAL_ELEV_HIGH);
             const latScale = smoothstep(polarDist, Math.PI / 8, Math.PI / 3);
-            glacIdx[r] = Math.max(latFactor, elevFactor * 0.3 * (0.3 + 0.7 * latScale)) * glacialStrength;
+            glacIdx[r] = Math.max(latFactor, elevFactor * GLACIAL_ELEV_FACTOR_SCALE * (GLACIAL_ELEV_FACTOR_LAT_BASE + GLACIAL_ELEV_FACTOR_LAT_SCALE * latScale)) * glacialStrength;
         }
 
         iceTarget = new Int32Array(N);
@@ -434,16 +450,16 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
 
     // Per-iteration glacial rates (scaled so total effect ≈ same regardless of iter count)
     const gScale = gIters > 0 ? 1.0 / gIters : 0;
-    const gCarveRate = 0.02 * gScale;
-    const gConvergenceBonus = 0.01 * gScale;
-    const gDepositAmount = 0.005 * gScale;
-    const gFjordCarve = 0.015 * gScale;
-    const gFlowThreshold = 0.1;
-    const gFjordThreshold = 0.5;
+    const gCarveRate = GLACIAL_CARVE_RATE * gScale;
+    const gConvergenceBonus = GLACIAL_CONVERGENCE_BONUS * gScale;
+    const gDepositAmount = GLACIAL_DEPOSIT_AMOUNT * gScale;
+    const gFjordCarve = GLACIAL_FJORD_CARVE * gScale;
+    const gFlowThreshold = GLACIAL_FLOW_THRESHOLD;
+    const gFjordThreshold = GLACIAL_FJORD_THRESHOLD;
 
     // Mid-loop drainage fix: at 75% of iterations, run a carve-biased
     // priority-flood to cut outlets through basins created by glaciation.
-    const midFloodIter = Math.round(totalIters * 0.75);
+    const midFloodIter = Math.round(totalIters * GLACIAL_MID_FLOOD_FRAC);
     let midFloodDone = false;
 
     // Pre-allocate thermal erosion buffers (max neighbor degree)
@@ -461,7 +477,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
 
         if (!midFloodDone && iter >= midFloodIter) {
             midFloodDone = true;
-            priorityFloodCarve(mesh, r_elevation, r_isOcean, 0.85);
+            priorityFloodCarve(mesh, r_elevation, r_isOcean, GLACIAL_MID_FLOOD_CARVE);
         }
 
         // Sort land cells by descending elevation — needed by glacial ice flow
@@ -518,7 +534,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                     if (r_isOcean[nb]) continue;
                     const d = neighborDist[j] || 1e-6;
                     const slope = Math.abs(r_elevation[r] - r_elevation[nb]) / d;
-                    r_elevation[nb] -= deepening * 0.4 * Math.max(0, 1 - slope);
+                    r_elevation[nb] -= deepening * GLACIAL_WIDENING_FRAC * Math.max(0, 1 - slope);
                 }
 
                 // Over-deepening at convergence zones
@@ -533,7 +549,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                 if (iceFlow[r] <= gFlowThreshold) continue;
                 const target = iceTarget[r];
                 if (target < 0 || r_isOcean[target]) continue;
-                if (glacIdx[target] < glacIdx[r] * 0.3) {
+                if (glacIdx[target] < glacIdx[r] * GLACIAL_TERMINUS_RATIO) {
                     r_elevation[target] += gDepositAmount * Math.pow(iceFlow[r], 0.3);
                 }
             }
@@ -541,7 +557,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
             // Fjord enhancement on coastal glaciated cells
             for (let r = 0; r < N; r++) {
                 if (r_isOcean[r]) continue;
-                if (glacIdx[r] <= 0.2 || iceFlow[r] <= gFjordThreshold) continue;
+                if (glacIdx[r] <= GLACIAL_FJORD_ICE_MIN || iceFlow[r] <= gFjordThreshold) continue;
                 let isCoastal = false;
                 for (let j = adjOffset[r], jEnd = adjOffset[r + 1]; j < jEnd; j++) {
                     if (r_isOcean[adjList[j]]) { isCoastal = true; break; }
@@ -633,7 +649,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                     if (drainOfTarget >= 0 && cellDist[target] > 0) {
                         receiverSlope = Math.abs(r_elevation[target] - r_elevation[drainOfTarget]) / cellDist[target];
                     }
-                    const depositFrac = 0.5 / (1 + receiverSlope * 50);
+                    const depositFrac = HYDRAULIC_DEPOSIT_FRAC / (1 + receiverSlope * HYDRAULIC_SLOPE_SENSITIVITY);
                     const deposit = eroded * depositFrac;
                     r_elevation[target] += deposit;
                     if (r_elevation[target] > h_new) r_elevation[target] = h_new;
@@ -683,7 +699,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                     totalSlopeWeighted += excVal[k] * excSlope[k];
                 }
 
-                const transfer = kThermal * totalExcess * 0.5;
+                const transfer = kThermal * totalExcess * THERMAL_TRANSFER_FRAC;
                 if (totalSlopeWeighted > 0) {
                     for (let k = 0; k < excCount; k++) {
                         const share = (excVal[k] * excSlope[k] / totalSlopeWeighted) * transfer;
@@ -716,7 +732,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
             }
             if (count > 0) {
                 const avg = sum / count;
-                tmp[r] = r_elevation[r] + (avg - r_elevation[r]) * 0.3;
+                tmp[r] = r_elevation[r] + (avg - r_elevation[r]) * GLACIAL_POST_SMOOTH;
             }
         }
         for (let r = 0; r < N; r++) {
@@ -759,18 +775,18 @@ export function sharpenRidges(mesh, r_elevation, r_isOcean, iterations, strength
                 // Ridge sharpening: push peaks up
                 let h_new = h + (h - avg) * strength;
                 // Clamp: don't exceed 1.5x original elevation
-                const cap = original[r] * 1.5;
+                const cap = original[r] * RIDGE_SHARPEN_CAP;
                 if (h_new > cap) h_new = cap;
                 tmp[r] = h_new;
             } else if (h < avg) {
                 // Valley deepening: push valleys down (weaker than ridge sharpening)
-                const VALLEY_FACTOR = 0.4;
+                const VALLEY_FACTOR = VALLEY_DEEPEN_FACTOR;
                 let h_new = h - (avg - h) * strength * VALLEY_FACTOR;
                 // Floor cap: don't go below 0.5x original (symmetric to 1.5x ceiling)
-                const floor = original[r] * 0.5;
+                const floor = original[r] * VALLEY_FLOOR_FRAC;
                 if (original[r] > 0 && h_new < floor) h_new = floor;
                 // Don't push land below sea level
-                if (original[r] > 0 && h_new < 0.001) h_new = 0.001;
+                if (original[r] > 0 && h_new < VALLEY_FLOOR_MIN) h_new = VALLEY_FLOOR_MIN;
                 tmp[r] = h_new;
             } else {
                 tmp[r] = h;

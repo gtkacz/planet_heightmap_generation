@@ -2,6 +2,20 @@
 // Each plate gets a random growth rate and preferred direction.
 
 import { makeRng, makeRandInt } from './rng.js';
+import {
+    PLATE_LOW_PLATE_T_HIGH, PLATE_LOW_PLATE_T_RANGE,
+    PLATE_RATE_MIN_BASE, PLATE_RATE_MIN_LOW_T,
+    PLATE_RATE_RANGE_BASE, PLATE_RATE_RANGE_LOW_T,
+    PLATE_DIR_BASE_BASE, PLATE_DIR_BASE_LOW_T,
+    PLATE_DIR_SCALE_BASE, PLATE_DIR_SCALE_LOW_T,
+    PLATE_DIR_STRENGTH_CAP,
+    PLATE_COMPACT_BASE, PLATE_COMPACT_LOW_T,
+    PLATE_AREA_GOVERNOR_BASE, PLATE_AREA_GOVERNOR_LOW_T,
+    PLATE_COMPACT_THRESHOLD_MULT, PLATE_COMPACT_PENALTY_MULT,
+    PLATE_OMEGA_MIN, PLATE_OMEGA_RANGE,
+    PLATE_SMOOTH_BASE, PLATE_SMOOTH_LOW_T,
+    PLATE_SMOOTH_FIRST_THRESH, PLATE_SMOOTH_LATER_THRESH,
+} from './terrain-config.js';
 
 export function generatePlates(mesh, r_xyz, numPlates, seed) {
     const { numRegions } = mesh;
@@ -87,17 +101,17 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
     }
 
     // Interpolation factor: more cragginess at low plate counts
-    const lowPlateT = Math.max(0, Math.min(1, (80 - numPlates) / 60));
+    const lowPlateT = Math.max(0, Math.min(1, (PLATE_LOW_PLATE_T_HIGH - numPlates) / PLATE_LOW_PLATE_T_RANGE));
 
     // Per-plate growth properties
     const plateGrowthRate = {};
     const plateGrowthDir = {};
     const plateDirStrength = {};
 
-    const rateMin = 0.7 - 0.4 * lowPlateT;   // 0.7 → 0.3
-    const rateRange = 2.3 + 2.4 * lowPlateT;  // 2.3 → 4.7
-    const dirBase = 0.15 + 0.25 * lowPlateT;  // 0.15 → 0.4
-    const dirScale = 0.25 + 0.25 * lowPlateT; // 0.25 → 0.5
+    const rateMin = PLATE_RATE_MIN_BASE - PLATE_RATE_MIN_LOW_T * lowPlateT;   // 0.7 → 0.3
+    const rateRange = PLATE_RATE_RANGE_BASE + PLATE_RATE_RANGE_LOW_T * lowPlateT;  // 2.3 → 4.7
+    const dirBase = PLATE_DIR_BASE_BASE + PLATE_DIR_BASE_LOW_T * lowPlateT;  // 0.15 → 0.4
+    const dirScale = PLATE_DIR_SCALE_BASE + PLATE_DIR_SCALE_LOW_T * lowPlateT; // 0.25 → 0.5
 
     for (const center of plateSeeds) {
         plateGrowthRate[center] = rateMin + rng() * rng() * rateRange;
@@ -111,7 +125,7 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
         const tLen = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
         plateGrowthDir[center] = [tx/tLen, ty/tLen, tz/tLen];
 
-        plateDirStrength[center] = Math.min(0.85, rng() * (dirBase + dirScale / plateGrowthRate[center]));
+        plateDirStrength[center] = Math.min(PLATE_DIR_STRENGTH_CAP, rng() * (dirBase + dirScale / plateGrowthRate[center]));
     }
 
     // Per-plate frontiers — round-robin ensures every plate advances
@@ -126,9 +140,9 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
 
     const { adjOffset, adjList } = mesh;
     let remaining = numRegions - plateIds.length;
-    const COMPACT_WEIGHT = 0.3 - 0.22 * lowPlateT; // 0.3 → 0.08
+    const COMPACT_WEIGHT = PLATE_COMPACT_BASE - PLATE_COMPACT_LOW_T * lowPlateT; // 0.3 → 0.08
     const expectedArea = Math.max(1, (numRegions - plateIds.length) / numPlates);
-    const areaGovernorMult = 2.0 + 2.0 * lowPlateT; // 2.0 → 4.0
+    const areaGovernorMult = PLATE_AREA_GOVERNOR_BASE + PLATE_AREA_GOVERNOR_LOW_T * lowPlateT; // 2.0 → 4.0
     const invNumRegions = 1 / numRegions;
 
     while (remaining > 0) {
@@ -151,7 +165,7 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
 
             // Compactness: expected chord distance for a circular plate of current area
             const expectedChordDist = Math.sqrt((plateAreaCount[pid] || 1) * invNumRegions / Math.PI) * 2;
-            const compactThreshold = expectedChordDist * 1.8;
+            const compactThreshold = expectedChordDist * PLATE_COMPACT_THRESHOLD_MULT;
 
             // Precompute seed coordinates
             const sx = r_xyz[3*pid], sy = r_xyz[3*pid+1], sz = r_xyz[3*pid+2];
@@ -170,7 +184,7 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
 
                     // Compactness: seedDist = dLenSq/2 for unit-sphere points
                     const excess = Math.max(0, dLenSq * 0.5 - compactThreshold);
-                    const compactPenalty = excess * (COMPACT_WEIGHT * 4);
+                    const compactPenalty = excess * (COMPACT_WEIGHT * PLATE_COMPACT_PENALTY_MULT);
 
                     const score = alignment * dirStr + rng() * (1 - dirStrHalf) - compactPenalty;
                     if (score > bestScore) { bestScore = score; bestIdx = idx; }
@@ -213,7 +227,7 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
         }
     }
 
-    smoothAndReconnectPlates(mesh, r_plate, plateSeeds, Math.round(3 - 2 * lowPlateT));
+    smoothAndReconnectPlates(mesh, r_plate, plateSeeds, Math.round(PLATE_SMOOTH_BASE - PLATE_SMOOTH_LOW_T * lowPlateT));
 
     // Assign an Euler pole + angular velocity per plate
     const plateVec = {};
@@ -224,7 +238,7 @@ export function generatePlates(mesh, r_xyz, numPlates, seed) {
         const sinP = Math.sqrt(1 - cosP * cosP);
         const pole = [sinP * Math.cos(theta), sinP * Math.sin(theta), cosP];
         // Angular velocity: magnitude 0.5–2.0, random sign
-        const omega = (0.5 + rng() * 1.5) * (rng() < 0.5 ? -1 : 1);
+        const omega = (PLATE_OMEGA_MIN + rng() * PLATE_OMEGA_RANGE) * (rng() < 0.5 ? -1 : 1);
         plateVec[center] = { pole, omega };
     }
 
@@ -262,7 +276,7 @@ export function smoothAndReconnectPlates(mesh, r_plate, plateSeeds, numPasses) {
     const cntPlates = new Int32Array(maxDeg);
     const cntValues = new Uint8Array(maxDeg);
     for (let pass = 0; pass < numPasses; pass++) {
-        const threshold = pass === 0 ? 0.4 : 0.5;
+        const threshold = pass === 0 ? PLATE_SMOOTH_FIRST_THRESH : PLATE_SMOOTH_LATER_THRESH;
         for (let r = 0; r < numRegions; r++) {
             const rStart = adjOffset[r], rEnd = adjOffset[r + 1];
             const deg = rEnd - rStart;

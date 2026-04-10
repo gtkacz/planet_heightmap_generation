@@ -7,9 +7,11 @@ import { buildSphere } from './sphere-mesh.js';
 import { SimplexNoise } from './simplex-noise.js';
 import { generatePlates } from './plates.js';
 import { assignOceanLand } from './ocean-land.js';
-
-const N_COARSE = 20000;
-const COARSE_JITTER = 0.75; // fixed — coarse mesh shape is independent of user's jitter
+import {
+    N_COARSE, COARSE_JITTER, COARSE_PERTURB_BASE, COARSE_PERTURB_LOW_T,
+    COARSE_FBM_BASE_FREQ, COARSE_FBM_OCTAVES, COARSE_FBM_DECAY, COARSE_FBM_FREQ_MULT,
+    PLATE_LOW_PLATE_T_HIGH, PLATE_LOW_PLATE_T_RANGE,
+} from './terrain-config.js';
 
 /**
  * Generate plates and ocean/land on a fixed coarse reference mesh.
@@ -56,9 +58,9 @@ export function projectCoarsePlates(mesh, r_xyz, coarseMesh, coarse_xyz, coarse_
     // FBM noise for fractal boundary perturbation
     const noise = new SimplexNoise(seed + 999);
     const coarseEdgeRad = Math.PI / Math.sqrt(coarseMesh.numRegions);
-    const lowPlateT = numPlates != null ? Math.max(0, Math.min(1, (80 - numPlates) / 60)) : 0;
-    const perturbAmp = coarseEdgeRad * (1.5 + 1.0 * lowPlateT); // 1.5 → 2.5 coarse cells
-    const BASE_FREQ = 8; // ~8 features per sphere diameter → ~16 around equator
+    const lowPlateT = numPlates != null ? Math.max(0, Math.min(1, (PLATE_LOW_PLATE_T_HIGH - numPlates) / PLATE_LOW_PLATE_T_RANGE)) : 0;
+    const perturbAmp = coarseEdgeRad * (COARSE_PERTURB_BASE + COARSE_PERTURB_LOW_T * lowPlateT); // 1.5 → 2.5 coarse cells
+    const BASE_FREQ = COARSE_FBM_BASE_FREQ; // ~8 features per sphere diameter → ~16 around equator
 
     const NC = coarseMesh.numRegions;
     const MAX_WALK = Math.ceil(Math.sqrt(NC)); // safety cap for greedy walk
@@ -70,12 +72,12 @@ export function projectCoarsePlates(mesh, r_xyz, coarseMesh, coarse_xyz, coarse_
         // FBM perturbation: shift lookup point for fractal boundaries
         let dx = 0, dy = 0, dz = 0;
         let amp = perturbAmp, freq = BASE_FREQ;
-        for (let oct = 0; oct < 4; oct++) {
+        for (let oct = 0; oct < COARSE_FBM_OCTAVES; oct++) {
             dx += noise.noise3D(ox * freq,       oy * freq,       oz * freq)       * amp;
             dy += noise.noise3D(ox * freq + 100, oy * freq + 100, oz * freq + 100) * amp;
             dz += noise.noise3D(ox * freq + 200, oy * freq + 200, oz * freq + 200) * amp;
-            amp *= 0.5;
-            freq *= 2;
+            amp *= COARSE_FBM_DECAY;
+            freq *= COARSE_FBM_FREQ_MULT;
         }
 
         // Project perturbed point back onto unit sphere
