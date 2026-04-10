@@ -13,6 +13,8 @@
 // correct precipitation pattern (s/w/f).  Without this, Mediterranean (Cs)
 // and monsoon (Cw/Dw) climates are hemisphere-flipped.
 
+import { smoothstep } from './wind.js';
+
 /**
  * Köppen class definitions: ID → { code, name, color [r,g,b] 0-1 }.
  */
@@ -110,7 +112,17 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         const PwinterLocal = localSummerIsSim ? Pw : Ps;
         const PsMonthLocal = PsummerLocal / 6;   // avg monthly precip in local summer
         const PwMonthLocal = PwinterLocal / 6;    // avg monthly precip in local winter
-        const Pdry = Math.min(PsMonthLocal, PwMonthLocal);
+
+        // Estimate driest individual month from the 6-month average.
+        // A 6-month dry-season average of 40mm might contain months ranging from
+        // 10mm to 70mm. The stronger the seasonal contrast (wet vs dry half-year),
+        // the more peaked the distribution within each half-year, so the driest
+        // month is further below the half-year average.
+        // Factor: at equal seasons (ratio=1) → driest ≈ 0.7× average
+        //         at strong monsoon (ratio=5+) → driest ≈ 0.35× average
+        const seasonRatio = Math.max(PsMonthLocal, PwMonthLocal) / (Math.min(PsMonthLocal, PwMonthLocal) || 1);
+        const driestFraction = 0.60 - 0.35 * smoothstep(1, 4, seasonRatio);
+        const Pdry = Math.min(PsMonthLocal, PwMonthLocal) * driestFraction;
 
         // ================================================================
         //  STEP 1 – TEMPERATURE BANDS
@@ -198,13 +210,14 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         // this smooths the driest/wettest month contrast, so thresholds are
         // relaxed vs. standard Köppen (which uses actual monthly extremes).
         // s  = dry local summer:  summer month < 50mm AND < 1/2 winter month
-        // w  = dry local winter:  winter month < 1/10 summer month
+        // w  = dry local winter:  winter month < 1/4 summer month
+        //      (relaxed from standard 1/10 because 6-month averages compress contrast)
         // f  = no dry season
         let precipPattern;
         const localSummerDrier = PsummerLocal < PwinterLocal;
         if (localSummerDrier && PsMonthLocal < 50 && PsMonthLocal < PwMonthLocal / 2) {
             precipPattern = 's';
-        } else if (!localSummerDrier && PwMonthLocal < PsMonthLocal / 10) {
+        } else if (!localSummerDrier && PwMonthLocal < PsMonthLocal / 3) {
             precipPattern = 'w';
         } else {
             precipPattern = 'f';

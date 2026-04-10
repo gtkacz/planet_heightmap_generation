@@ -163,6 +163,15 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
 
 /**
  * Compute ITCZ latitude at sampled longitudes for a given season.
+ * Uses a thermal equator search: scans latitudes from -30° to +30°,
+ * computes a heating score at each, and picks the peak.
+ *
+ * Heating score combines:
+ *   - Solar insolation (cosine of latitude offset from subsolar point)
+ *   - Land thermal boost (land heats faster than ocean)
+ *   - Elevation boost (plateaus heat more intensely — thinner atmosphere)
+ *   - Cross-equatorial anchoring (winter-hemisphere land pulls ITCZ equatorward)
+ *
  * @param {function} geoSample - from buildGeoIndex
  * @param {string} season - 'summer' (NH) or 'winter' (NH)
  * @param {number} tiltRad - axial tilt in radians
@@ -170,10 +179,22 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
  */
 function computeITCZ(geoSample, season, tiltRad) {
     const NUM_LON = 72;
-    const sampleRadius = 20 * DEG; // wide radius for smooth geographic sampling
+    // Two sampling radii: local (5°) for precise land detection, wide (30°) for continental scale
+    const localRadius = 5 * DEG;
+    const wideRadius = 30 * DEG;
 
     // +1 = NH summer, -1 = SH summer (NH winter)
     const sign = season === 'summer' ? 1 : -1;
+
+    // Subsolar latitude: where the sun is directly overhead this season
+    // Full tilt in summer hemisphere (e.g. +23.5° for NH summer)
+    const subsolarLat = sign * tiltRad;
+
+    // Scan range: -30° to +30° in 2.5° steps
+    const SCAN_MIN = -30;
+    const SCAN_MAX = 30;
+    const SCAN_STEP = 2.5;
+    const numScans = Math.round((SCAN_MAX - SCAN_MIN) / SCAN_STEP) + 1;
 
     const lons = new Float64Array(NUM_LON);
     const rawLats = new Float64Array(NUM_LON);
@@ -182,32 +203,97 @@ function computeITCZ(geoSample, season, tiltRad) {
         const lon = -Math.PI + (i + 0.5) * (2 * Math.PI / NUM_LON);
         lons[i] = lon;
 
-        // Sample land fraction across the 5°–20° band in the summer hemisphere
-        let landSum = 0, elevSum = 0, samples = 0;
-        for (let deg = 5; deg <= 20; deg += 5) {
-            const lat = deg * sign * DEG;
-            const { landFrac, avgElev } = geoSample(lat, lon, sampleRadius);
-            landSum += landFrac;
-            elevSum += avgElev;
-            samples++;
+        let bestScore = -Infinity;
+        let bestLat = sign * 5 * DEG; // fallback
+
+        for (let si = 0; si < numScans; si++) {
+            const latDeg = SCAN_MIN + si * SCAN_STEP;
+            const lat = latDeg * DEG;
+            const local = geoSample(lat, lon, localRadius);
+            const wide = geoSample(lat, lon, wideRadius);
+
+            // (a) Solar insolation: peaks at subsolar latitude, broad Gaussian falloff.
+            // σ = 25° gives a wide heating dome — the ITCZ doesn't track the
+            // subsolar point 1:1, it lags and is damped by ocean thermal inertia.
+            const dSolar = (lat - subsolarLat) * RAD; // degrees from subsolar
+            const solarScore = Math.exp(-0.5 * (dSolar / 25) ** 2);
+
+            // (b) Land thermal boost: uses multi-scale sampling.
+            // Only truly continental-scale landmasses pull the ITCZ significantly.
+            // Islands, thin peninsulas, and coastlines near ocean register low at
+            // the wide (30°) radius and get suppressed by the steep ramp.
+            const localLand = local.landFrac;
+            const wideLand = wide.landFrac;
+
+            // Also sample poleward of this latitude: a massive continent extending
+            // poleward (like Asia beyond 20°N) creates an enormous heat reservoir
+            // that pulls the ITCZ toward it even if the scan point itself is at
+            // the continent's edge. Sample 15° poleward in the summer hemisphere.
+            const polewardLat = lat + sign * 15 * DEG;
+            const poleward = geoSample(polewardLat, lon, wideRadius);
+            // Combined land signal: max of local-wide and poleward-wide.
+            // Poleward land contributes at 70% strength (heat diffuses equatorward).
+            const effectiveWideLand = Math.max(wideLand, poleward.landFrac * 0.7);
+
+            // Wide-scale land must exceed ~20% before any real pull kicks in.
+            const continentalScale = smoothstep(0.20, 0.45, effectiveWideLand);
+            // Square it so moderate land fractions still contribute little.
+            const scaledLand = continentalScale * continentalScale;
+            // Local land gate: require >25% local land fraction to activate.
+            // At 5° radius (~560 km), ocean near thin islands stays well below this.
+            const landGate = smoothstep(0.25, 0.55, localLand);
+            // Strong max boost so massive continents pull ITCZ toward 25-30°
+            const landBoost = landGate * scaledLand * 1.0;
+
+            // (c) Elevation boost: high plateaus heat more intensely
+            // (thinner atmosphere, stronger surface insolation).
+            // Also scaled by continental size — isolated volcanic peaks don't pull ITCZ.
+            const elevKm = elevToHeightKm(Math.max(0, wide.avgElev));
+            const elevBoost = Math.min(0.30, elevKm * 0.12) * scaledLand;
+
+            // (d) Cross-equatorial anchoring: if this latitude is in the
+            // winter hemisphere but there's significant land, it anchors
+            // the ITCZ closer to the equator (resists poleward migration).
+            const isWinterHemi = (sign > 0 && latDeg < 0) || (sign < 0 && latDeg > 0);
+            const anchorBoost = isWinterHemi ? landBoost * 0.4 : 0;
+
+            // (e) Ocean baseline: slight poleward bias in summer hemisphere
+            // even over open ocean (~6-8° from equator on average).
+            const isSummerHemi = !isWinterHemi;
+            const oceanBias = isSummerHemi && localLand < 0.1
+                ? 0.08 * Math.exp(-0.5 * ((Math.abs(latDeg) - 7) / 5) ** 2)
+                : 0;
+
+            const score = solarScore + landBoost + elevBoost + anchorBoost + oceanBias;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestLat = lat;
+            }
         }
 
-        const avgLand = landSum / samples;
-        const avgElev = elevSum / samples;
-
-        // Ocean default: 5°. Land pulls poleward up to +15°.
-        // Need ~50% land coverage for full poleward pull.
-        const landPull = Math.min(1, avgLand * 2);
-        const itczDeg = 5 + landPull * 15 - elevToHeightKm(avgElev) * 1.5;
-        const clampedDeg = Math.max(5, Math.min(20, itczDeg));
-
-        rawLats[i] = clampedDeg * sign * DEG;
+        rawLats[i] = bestLat;
     }
 
-    // Smooth the raw latitude samples (periodic moving average, 3 passes)
-    // to eliminate jagged longitude-to-longitude jumps
+    // Pull extreme outliers toward the zonal mean before longitude smoothing.
+    // The ITCZ is a planetary-scale feature — individual longitude columns
+    // shouldn't deviate too far from the overall trend.
     const lats = new Float64Array(rawLats);
     const tmp = new Float64Array(NUM_LON);
+    // Wide periodic moving average (kernel = 5 neighbors) for heavy smoothing,
+    // then narrow (kernel = 3) for fine cleanup. More passes = smoother ITCZ.
+    // Wide kernel: weights [0.1, 0.2, 0.4, 0.2, 0.1] over 5 neighbors
+    for (let pass = 0; pass < 4; pass++) {
+        for (let i = 0; i < NUM_LON; i++) {
+            const p2 = (i - 2 + NUM_LON) % NUM_LON;
+            const p1 = (i - 1 + NUM_LON) % NUM_LON;
+            const n1 = (i + 1) % NUM_LON;
+            const n2 = (i + 2) % NUM_LON;
+            tmp[i] = 0.1 * lats[p2] + 0.2 * lats[p1] + 0.4 * lats[i] + 0.2 * lats[n1] + 0.1 * lats[n2];
+        }
+        lats.set(tmp);
+    }
+    // Narrow cleanup passes
     for (let pass = 0; pass < 3; pass++) {
         for (let i = 0; i < NUM_LON; i++) {
             const p = (i - 1 + NUM_LON) % NUM_LON;
@@ -217,11 +303,9 @@ function computeITCZ(geoSample, season, tiltRad) {
         lats.set(tmp);
     }
 
-    // Re-clamp after smoothing: 5°–20° in the summer hemisphere
-    const clampMin = (sign > 0 ? 5 : -20) * DEG;
-    const clampMax = (sign > 0 ? 20 : -5) * DEG;
+    // Clamp to ±30° (ITCZ never migrates beyond the tropics)
     for (let i = 0; i < NUM_LON; i++) {
-        lats[i] = Math.max(clampMin, Math.min(clampMax, lats[i]));
+        lats[i] = Math.max(-30 * DEG, Math.min(30 * DEG, lats[i]));
     }
 
     const spline = buildPeriodicSpline(lons, lats);
