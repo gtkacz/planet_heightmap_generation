@@ -237,8 +237,10 @@ if (worker) {
                     r_temperature_winter: msg.r_temperature_winter,
                     seed: msg.seed,
                     nMag: msg.nMag,
-                    debugLayers: msg.debugLayers
+                    debugLayers: msg.debugLayers,
+                    terrainMetrics: msg.terrainMetrics || null
                 };
+                if (msg.terrainMetrics) window.__terrainMetrics = msg.terrainMetrics;
                 const tState = performance.now() - tStateStart;
 
                 // Main-thread fallbacks — only run when climate was requested but partially missing

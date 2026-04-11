@@ -14,6 +14,7 @@ import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
+import { computeTerrainMetrics } from './terrain-metrics.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -292,6 +293,24 @@ function handleGenerate(data) {
         };
         timing.push({ stage: 'Clone state for retention', ms: performance.now() - t0 });
 
+        // Compute terrain quality metrics using retained-state clones
+        // (the originals will be transferred and neutered below).
+        let terrainMetrics = null;
+        try {
+            terrainMetrics = computeTerrainMetrics({
+                mesh: W.mesh,
+                r_xyz: W.r_xyz,
+                r_elevation: W.r_elevation_final,
+                r_plate: W.r_plate,
+                plateIsOcean: Array.from(W.plateIsOcean),
+                r_stress: W.r_stress,
+                debugLayers,
+                prePostElev: W.prePostElev,
+            });
+        } catch (e) {
+            terrainMetrics = { _error: e.message };
+        }
+
         const tWorkerTotal = performance.now() - tTotal0;
 
         // Build result — typed arrays we no longer need are transferred (zero-copy).
@@ -321,7 +340,8 @@ function handleGenerate(data) {
             _pipelineTiming: timing,          // top-level pipeline stages
             _postTiming: postTiming,          // post-processing sub-stages
             _workerTotal: tWorkerTotal,
-            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed }
+            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
+            terrainMetrics
         };
 
         // Transfer arrays the worker no longer needs (cloned copies kept in W)
