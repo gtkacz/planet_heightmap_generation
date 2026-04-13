@@ -349,6 +349,30 @@ export const PLATE_COMPACT_THRESHOLD_MULT = 1.8;
 export const PLATE_COMPACT_PENALTY_MULT = 4;
 export const PLATE_OMEGA_MIN = 0.5;
 export const PLATE_OMEGA_RANGE = 1.5;
+// ── Plate Physics ──
+export const CONTINENTAL_DRAG_FACTOR = 0.35;
+export const OCEAN_DRAG_FACTOR = 1.0;
+export const SIZE_VEL_POWER = 0.5;
+export const SIZE_VEL_MIN_FACTOR = 0.4;
+export const SIZE_VEL_MAX_FACTOR = 2.5;
+export const MANTLE_CELLS = 5;
+export const MANTLE_ROTATION_STRENGTH = 0.6; // tangential swirl relative to radial flow
+export const MANTLE_DOMINANT_STRENGTH = 2.0;  // strength multiplier for the 2 dominant cells
+export const MANTLE_MINOR_STRENGTH = 0.7;     // strength multiplier for the remaining cells
+export const MANTLE_POLE_BLEND = 0.45;
+export const SLAB_PULL_POLE_BLEND = 0.65;
+export const RIDGE_PUSH_POLE_BLEND = 0.40;
+// Super plate multiplier: physics blends are this much stronger on super plates
+export const SUPER_PLATE_PHYSICS_MULT = 1.6;
+
+// ── Mantle-Driven Features ──
+export const MANTLE_SPEED_ALIGN_STRENGTH = 0.35;
+export const DYNAMIC_TOPO_UPLIFT = 0.035;
+export const DYNAMIC_TOPO_SUBSIDENCE = 0.025;
+export const MANTLE_STRESS_BOOST = 0.40;
+export const HOTSPOT_UPWELLING_CANDIDATES = 8;
+export const HOTSPOT_UPWELLING_JITTER = 0.3;
+
 export const PLATE_SMOOTH_BASE = 3;
 export const PLATE_SMOOTH_LOW_T = 2;
 export const PLATE_SMOOTH_FIRST_THRESH = 0.4;

@@ -89,6 +89,8 @@ import {
     HYPS_HIGH_POWER, FILL_LEVEL,
     PLAIN_TARGET, PLAIN_SUPPRESSION_STRENGTH,
     UNIFORM_LAND_NOISE_FREQ, UNIFORM_LAND_NOISE_OCTAVES, UNIFORM_LAND_NOISE_AMP,
+    MANTLE_STRESS_BOOST, DYNAMIC_TOPO_UPLIFT, DYNAMIC_TOPO_SUBSIDENCE,
+    HOTSPOT_UPWELLING_CANDIDATES, HOTSPOT_UPWELLING_JITTER,
 } from './terrain-config.js';
 
 // ----------------------------------------------------------------
@@ -376,7 +378,7 @@ export function expandRegions(mesh, regions, steps) {
 // ----------------------------------------------------------------
 //  Elevation assignment — combines distance fields, stress, noise
 // ----------------------------------------------------------------
-export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, noiseMag, seed, spread, plateDensity, superPlateData) {
+export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, noiseMag, seed, spread, plateDensity, superPlateData, r_mantleField) {
     const { numRegions } = mesh;
     const r_elevation = new Float32Array(numRegions);
     const _timing = [];
@@ -396,6 +398,22 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     const dl_foldRidge = new Float32Array(numRegions);
     const dl_orogenicPower = new Float32Array(numRegions);
     const dl_uniformNoise  = new Float32Array(numRegions);
+    const dl_dynamicTopo   = new Float32Array(numRegions);
+
+    // Normalize mantle field to [-1, +1] for use by multiple features
+    let r_mantleNorm = null;
+    if (r_mantleField) {
+        let mantleMax = 0;
+        for (let r = 0; r < numRegions; r++) {
+            const v = Math.abs(r_mantleField[r]);
+            if (v > mantleMax) mantleMax = v;
+        }
+        if (mantleMax > 1e-6) {
+            r_mantleNorm = new Float32Array(numRegions);
+            const inv = 1 / mantleMax;
+            for (let r = 0; r < numRegions; r++) r_mantleNorm[r] = r_mantleField[r] * inv;
+        }
+    }
 
     // --- Small-plate collisions (always computed) ---
     const smallCol = findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateDensity, noise);
@@ -542,6 +560,16 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         }
     }
     _timing.push({ stage: 'Stress propagation' + (hasSuperPlates ? ' (dual)' : ''), ms: performance.now() - _t0 }); _t0 = performance.now();
+
+    // Mantle-flow stress modulation: collisions backed by upwelling are more intense
+    if (r_mantleNorm) {
+        for (let r = 0; r < numRegions; r++) {
+            if (r_stress[r] < 1e-6) continue;
+            // Upwelling boosts stress, downwelling suppresses (capped at -50%)
+            const mult = 1.0 + MANTLE_STRESS_BOOST * Math.max(-0.5, r_mantleNorm[r]);
+            r_stress[r] *= mult;
+        }
+    }
 
     // Plate interiors are also seeds — find a representative hi-res region
     // per plate (plate seed IDs are coarse mesh indices that may not correspond
@@ -1664,13 +1692,30 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             const hDecay    = CHAIN_DECAY + (hsRng() - 0.5) * 0.35;
             const hLength   = Math.max(3, CHAIN_LENGTH + Math.round((hsRng() - 0.5) * 10));
 
-            // Random point on unit sphere — same position regardless of numRegions
-            const theta = 2 * Math.PI * hsPosRng();
-            const cosPhiVal = 2 * hsPosRng() - 1;
-            const sinPhiVal = Math.sqrt(1 - cosPhiVal * cosPhiVal);
-            const hx = sinPhiVal * Math.cos(theta);
-            const hy = sinPhiVal * Math.sin(theta);
-            const hz = cosPhiVal;
+            // Position on unit sphere — biased toward mantle upwelling zones.
+            // Generate multiple candidates, score by upwelling strength, pick best.
+            let hx, hy, hz;
+            if (r_mantleNorm) {
+                let bestScore = -Infinity;
+                for (let c = 0; c < HOTSPOT_UPWELLING_CANDIDATES; c++) {
+                    const cTheta = 2 * Math.PI * hsPosRng();
+                    const cCosPhi = 2 * hsPosRng() - 1;
+                    const cSinPhi = Math.sqrt(1 - cCosPhi * cCosPhi);
+                    const cx = cSinPhi * Math.cos(cTheta);
+                    const cy = cSinPhi * Math.sin(cTheta);
+                    const cz = cCosPhi;
+                    const cr = findNearestR(cx, cy, cz);
+                    const score = r_mantleNorm[cr] + (hsPosRng() - 0.5) * HOTSPOT_UPWELLING_JITTER;
+                    if (score > bestScore) { bestScore = score; hx = cx; hy = cy; hz = cz; }
+                }
+            } else {
+                const theta = 2 * Math.PI * hsPosRng();
+                const cosPhiVal = 2 * hsPosRng() - 1;
+                const sinPhiVal = Math.sqrt(1 - cosPhiVal * cosPhiVal);
+                hx = sinPhiVal * Math.cos(theta);
+                hy = sinPhiVal * Math.sin(theta);
+                hz = cosPhiVal;
+            }
             const centerR = findNearestR(hx, hy, hz);
             const plate = r_plate[centerR];
             const pv = plateVec[plate];
@@ -1941,6 +1986,21 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Uniform land noise', ms: performance.now() - _t0 }); _t0 = performance.now();
 
+    // Dynamic topography: broad mantle-driven vertical deflection.
+    // Upwelling pushes terrain up (~350m), downwelling pulls it down (~250m).
+    if (r_mantleNorm) {
+        for (let r = 0; r < numRegions; r++) {
+            const mn = r_mantleNorm[r];
+            const dtopo = mn > 0
+                ? mn * DYNAMIC_TOPO_UPLIFT
+                : mn * DYNAMIC_TOPO_SUBSIDENCE;
+            r_elevation[r] += dtopo;
+            dl_dynamicTopo[r] = dtopo;
+        }
+    }
+
+    _timing.push({ stage: 'Dynamic topography', ms: performance.now() - _t0 }); _t0 = performance.now();
+
     // Compress positive elevations to soften tall peaks
     for (let r = 0; r < numRegions; r++) {
         if (r_elevation[r] > 0) {
@@ -2041,7 +2101,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Fill interior seas', ms: performance.now() - _t0 });
 
-    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor, uniformNoise: dl_uniformNoise };
+    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor, uniformNoise: dl_uniformNoise, dynamicTopo: dl_dynamicTopo };
     if (hasSuperPlates) {
         debugLayers.superPlates = new Float32Array(superPlateData.r_superPlate);
     }
