@@ -15,6 +15,8 @@ import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
+import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
+import { SUPER_PLATE_PHYSICS_MULT } from './terrain-config.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -203,18 +205,52 @@ function handleGenerate(data) {
 
         const noise = new SimplexNoise(seed);
 
+        // Apply physically-motivated plate motion biasing
+        t0 = performance.now();
+        const { plateDebug, mantleField, velDelta } = applyPlatePhysics(
+            plateVec, plateSeeds, plateIsOcean,
+            coarse_r_plate, coarseMesh, coarse_xyz, seed
+        );
+        timing.push({ stage: 'Plate physics (drag + slab pull + ridge push + mantle flow)', ms: performance.now() - t0 });
+
         // Build super plates for broad orogenic belts (skip if too few plates)
         let superPlateData = null;
         if (P >= 8) {
             t0 = performance.now();
             superPlateData = buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity);
             timing.push({ stage: `Super plates (${superPlateData.numSuperPlates} groups from ${P} plates)`, ms: performance.now() - t0 });
+
+            // Apply plate physics to super plates with stronger blending
+            t0 = performance.now();
+            const spSeeds = new Set();
+            for (let i = 0; i < superPlateData.numSuperPlates; i++) spSeeds.add(i);
+            applyPlatePhysics(
+                superPlateData.superPlateVec, spSeeds, superPlateData.superPlateIsOcean,
+                superPlateData.r_superPlate, mesh, r_xyz, seed + 7777,
+                SUPER_PLATE_PHYSICS_MULT
+            );
+            timing.push({ stage: 'Super plate physics', ms: performance.now() - t0 });
+        }
+
+        // Expand mantle field from coarse mesh to hi-res via plate averages
+        const r_mantleField = new Float32Array(mesh.numRegions);
+        {
+            const plateMantleSum = {}, plateMantleN = {};
+            for (let r = 0; r < coarseMesh.numRegions; r++) {
+                const pid = coarse_r_plate[r];
+                plateMantleSum[pid] = (plateMantleSum[pid] || 0) + mantleField[r];
+                plateMantleN[pid] = (plateMantleN[pid] || 0) + 1;
+            }
+            for (let r = 0; r < mesh.numRegions; r++) {
+                const pid = r_plate[r];
+                r_mantleField[r] = plateMantleN[pid] ? plateMantleSum[pid] / plateMantleN[pid] : 0;
+            }
         }
 
         progress(35, 'Raising mountains\u2026');
         t0 = performance.now();
         const { r_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers, _timing } =
-            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, plateDensity, superPlateData);
+            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, plateDensity, superPlateData, r_mantleField);
         timing.push({ stage: 'Elevation (collisions + stress + distance fields + assignment)', ms: performance.now() - t0 });
 
         const prePostElev = new Float32Array(r_elevation);
@@ -224,6 +260,19 @@ function handleGenerate(data) {
         const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot);
         timing.push({ stage: 'Terrain post-processing (total)', ms: performance.now() - t0 });
         debugLayers.erosionDelta = dl_erosionDelta;
+
+        // Expand plate physics diagnostics to hi-res mesh
+        {
+            const ppd = expandPlatePhysicsDebug(
+                plateDebug, mantleField, velDelta, r_plate, mesh.numRegions,
+                coarse_r_plate, coarseMesh.numRegions
+            );
+            debugLayers.continentalDrag = ppd.dl_continentalDrag;
+            debugLayers.sizeVelocity = ppd.dl_sizeVelocity;
+            debugLayers.plateSpeed = ppd.dl_plateSpeed;
+            debugLayers.velChange = ppd.dl_velChange;
+            debugLayers.mantleFlow = ppd.dl_mantleFlow;
+        }
 
         let windResult = null, oceanResult = null, precipResult = null, tempResult = null;
 

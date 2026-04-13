@@ -274,8 +274,9 @@ export function warpTerrain(mesh, r_elevation, r_xyz, seed, strength, r_hotspot)
         const nnx = nx / nlen, nny = ny / nlen, nnz = nz / nlen;
 
         // FBM noise → two displacement values
-        const d1 = noise.fbm(px * freq, py * freq, pz * freq, octaves) * maxAmp;
-        const d2 = noise.fbm(px * freq + 31.7, py * freq + 47.3, pz * freq + 19.1, octaves) * maxAmp;
+        const pfx = px * freq, pfy = py * freq, pfz = pz * freq;
+        const d1 = noise.fbm(pfx, pfy, pfz, octaves) * maxAmp;
+        const d2 = noise.fbm(pfx + 31.7, pfy + 47.3, pfz + 19.1, octaves) * maxAmp;
 
         // Displace position along tangent frame and re-project onto unit sphere
         let wx = px + ex * d1 + nnx * d2;

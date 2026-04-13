@@ -71,13 +71,14 @@ export function projectCoarsePlates(mesh, r_xyz, coarseMesh, coarse_xyz, coarse_
 
         // FBM perturbation: shift lookup point for fractal boundaries
         let dx = 0, dy = 0, dz = 0;
-        let amp = perturbAmp, freq = BASE_FREQ;
+        let amp = perturbAmp;
+        let fx = ox * BASE_FREQ, fy = oy * BASE_FREQ, fz = oz * BASE_FREQ;
         for (let oct = 0; oct < COARSE_FBM_OCTAVES; oct++) {
-            dx += noise.noise3D(ox * freq,       oy * freq,       oz * freq)       * amp;
-            dy += noise.noise3D(ox * freq + 100, oy * freq + 100, oz * freq + 100) * amp;
-            dz += noise.noise3D(ox * freq + 200, oy * freq + 200, oz * freq + 200) * amp;
+            dx += noise.noise3D(fx,       fy,       fz)       * amp;
+            dy += noise.noise3D(fx + 100, fy + 100, fz + 100) * amp;
+            dz += noise.noise3D(fx + 200, fy + 200, fz + 200) * amp;
             amp *= COARSE_FBM_DECAY;
-            freq *= COARSE_FBM_FREQ_MULT;
+            fx *= COARSE_FBM_FREQ_MULT; fy *= COARSE_FBM_FREQ_MULT; fz *= COARSE_FBM_FREQ_MULT;
         }
 
         // Project perturbed point back onto unit sphere

@@ -232,14 +232,26 @@ export const VOLC_SIGMA_VAR_BASE = 0.6;
 export const VOLC_SIGMA_VAR_RANGE = 0.8;
 export const VOLC_SUBDUCT_THRESH = 0.45;
 
-// ── Large Igneous Provinces ──
-export const LIP_SIGMA = 0.025;
-export const LIP_HEIGHT = 0.04;
+// ── Continental Hotspots (Yellowstone-style plateau mode) ──
+export const CONT_HOTSPOT_SIGMA_MULT = 2.5;      // sigma multiplier vs oceanic domes
+export const CONT_HOTSPOT_STRENGTH_MULT = 0.4;   // lower peak, broader plateau
+export const CONT_HOTSPOT_CALDERA_SIGMA_FRAC = 0.35;  // wider caldera than oceanic
+export const CONT_HOTSPOT_CALDERA_DEPTH_FRAC = 0.30;  // deeper caldera
+export const CONT_HOTSPOT_SWELL_MULT = 1.5;      // wider swell around continental hotspot
+
+// ── Large Igneous Provinces (hotspot-driven) ──
+export const LIP_SIGMA = 0.12;
+export const LIP_HEIGHT = 0.02;
+export const LIP_LOBE_COUNT = 6;
+export const LIP_LOBE_OFFSET = 0.6;        // offset in sigma units
+export const LIP_LOBE_SIGMA = 0.6;         // lobe sigma as fraction of parent
+export const LIP_LOBE_STRENGTH = 0.9;      // lobe height as fraction of parent
+export const LIP_UPWELLING_THRESHOLD = 0.2;       // minimum mantle upwelling to trigger LIP
 
 // ── Hotspot Chains ──
 export const NUM_HOTSPOTS = 5;
 export const CHAIN_LENGTH = 6;
-export const CHAIN_DECAY = 0.75;
+export const CHAIN_DECAY = 0.65;
 export const CHAIN_SPACING = 0.06;
 export const DOME_SIGMA = 0.006;
 export const DOME_STRENGTH = 0.60;
@@ -248,12 +260,16 @@ export const SWELL_STR_MULT = 0.10;
 export const DOME_OCEAN_BOOST = 1.8;
 export const DOME_PEAK_THRESH_SIGMA = 5.5;
 export const DOME_SWELL_THRESH_SIGMA = 3;
-export const DOME_DRIFT_STRETCH = 1.4;
+export const DOME_DRIFT_STRETCH = 1.05;
+export const DOME_SATELLITE_COUNT = 2;          // extra sub-cones per island
+export const DOME_SATELLITE_OFFSET = 0.8;       // offset distance in sigma units
+export const DOME_SATELLITE_SIGMA = 0.5;        // satellite sigma as fraction of parent
+export const DOME_SATELLITE_STRENGTH = 0.35;    // satellite strength as fraction of parent
 export const DOME_RIFT_BOOST = 0.5;
 export const DOME_CALDERA_SIGMA_FRAC = 0.25;
 export const DOME_CALDERA_DEPTH_FRAC = 0.20;
 export const DOME_CALDERA_STRENGTH_MIN = 0.15;
-export const DOME_AGE_BROADENING = 0.06;
+export const DOME_AGE_BROADENING = 0.03;
 export const DOME_SHAPE_WARP_FREQ = 8;
 export const DOME_SHAPE_WARP_AMP = 0.4;
 export const DOME_SHAPE_WARP_DETAIL_FREQ = 20;
@@ -349,6 +365,30 @@ export const PLATE_COMPACT_THRESHOLD_MULT = 1.8;
 export const PLATE_COMPACT_PENALTY_MULT = 4;
 export const PLATE_OMEGA_MIN = 0.5;
 export const PLATE_OMEGA_RANGE = 1.5;
+// ── Plate Physics ──
+export const CONTINENTAL_DRAG_FACTOR = 0.35;
+export const OCEAN_DRAG_FACTOR = 1.0;
+export const SIZE_VEL_POWER = 0.5;
+export const SIZE_VEL_MIN_FACTOR = 0.4;
+export const SIZE_VEL_MAX_FACTOR = 2.5;
+export const MANTLE_CELLS = 5;
+export const MANTLE_ROTATION_STRENGTH = 0.6; // tangential swirl relative to radial flow
+export const MANTLE_DOMINANT_STRENGTH = 2.0;  // strength multiplier for the 2 dominant cells
+export const MANTLE_MINOR_STRENGTH = 0.7;     // strength multiplier for the remaining cells
+export const MANTLE_POLE_BLEND = 0.45;
+export const SLAB_PULL_POLE_BLEND = 0.65;
+export const RIDGE_PUSH_POLE_BLEND = 0.40;
+// Super plate multiplier: physics blends are this much stronger on super plates
+export const SUPER_PLATE_PHYSICS_MULT = 1.6;
+
+// ── Mantle-Driven Features ──
+export const MANTLE_SPEED_ALIGN_STRENGTH = 0.35;
+export const DYNAMIC_TOPO_UPLIFT = 0.035;
+export const DYNAMIC_TOPO_SUBSIDENCE = 0.025;
+export const MANTLE_STRESS_BOOST = 0.40;
+export const HOTSPOT_UPWELLING_CANDIDATES = 8;
+export const HOTSPOT_UPWELLING_JITTER = 0.3;
+
 export const PLATE_SMOOTH_BASE = 3;
 export const PLATE_SMOOTH_LOW_T = 2;
 export const PLATE_SMOOTH_FIRST_THRESH = 0.4;
