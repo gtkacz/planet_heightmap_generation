@@ -136,6 +136,14 @@ export const FINE_NOISE_FREQ_MULT = 8;
 export const FINE_NOISE_AMP = 0.25;
 export const OCEAN_NOISE_AMP = 0.3;
 
+// ── Uniform Land Noise ──
+// Applied uniformly across all land (land-plate OR above sea level),
+// independent of stress/tectonic activity. Two layers: additive bumps
+// and subtractive carving, blended at equal strength.
+export const UNIFORM_LAND_NOISE_FREQ = 36;      // spatial frequency
+export const UNIFORM_LAND_NOISE_OCTAVES = 8;
+export const UNIFORM_LAND_NOISE_AMP = 1.25;     // amplitude (× noiseMag); ±2 km max at default roughness
+
 // ── Dissection & Summits ──
 export const DISSECT_THRESHOLD = 0.10;
 export const DISSECT_AMP = 0.55;
