@@ -88,6 +88,7 @@ import {
     HYPS_LOW_BREAK, HYPS_MID_BREAK, HYPS_LOW_ELEV_FRAC, HYPS_MID_ELEV_FRAC,
     HYPS_HIGH_POWER, FILL_LEVEL,
     PLAIN_TARGET, PLAIN_SUPPRESSION_STRENGTH,
+    UNIFORM_LAND_NOISE_FREQ, UNIFORM_LAND_NOISE_OCTAVES, UNIFORM_LAND_NOISE_AMP,
 } from './terrain-config.js';
 
 // ----------------------------------------------------------------
@@ -394,6 +395,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     const dl_backArc = new Float32Array(numRegions);
     const dl_foldRidge = new Float32Array(numRegions);
     const dl_orogenicPower = new Float32Array(numRegions);
+    const dl_uniformNoise  = new Float32Array(numRegions);
 
     // --- Small-plate collisions (always computed) ---
     const smallCol = findCollisions(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateDensity, noise);
@@ -1890,6 +1892,55 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Hotspot volcanism', ms: performance.now() - _t0 }); _t0 = performance.now();
 
+    // Uniform land noise: two independent noise layers (additive + subtractive)
+    // applied to every region on a land plate or above sea level.
+    // Modulated by the terrain gradient (Quilez-style): full strength on flat
+    // terrain, suppressed on steep slopes where there's already plenty of detail.
+    {
+        const addNoise = new SimplexNoise(seed + 500);
+        const subNoise = new SimplexNoise(seed + 501);
+        const freq = UNIFORM_LAND_NOISE_FREQ;
+        const oct  = UNIFORM_LAND_NOISE_OCTAVES;
+        const amp  = UNIFORM_LAND_NOISE_AMP * noiseMag;
+
+        const mtnRampDist = Math.max(4, Math.round(20 * scaleFactor));
+        const halfFreq = freq * 0.5;
+        const halfAmp = amp * 0.5;
+
+        for (let r = 0; r < numRegions; r++) {
+            if (r_isOcean[r] && r_elevation[r] <= 0) continue;
+
+            // Slope: average absolute elevation difference to neighbors
+            const ex = r_elevation[r];
+            let sum = 0, count = 0;
+            for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
+                sum += Math.abs(r_elevation[adjList[ni]] - ex);
+                count++;
+            }
+            const slopeVal = sum / (count | 1);
+
+            // Modulation: compute cheap factors first, skip fbm if negligible
+            const gradDamp = 1.0 / (1.0 + 4.0 * slopeVal);
+            const elev = ex > 0 ? ex : 0;
+            const elevT = elev < 0.3 ? elev / 0.3 : 1.0;
+            const elevBoost = elevT * elevT * (3.0 - 2.0 * elevT);
+            const basinDamp = 1.0 - 0.6 * r_basinFactor[r];
+            const dm = dist_mountain[r];
+            const mtnT = dm === Infinity ? 0.0 : (dm < mtnRampDist ? 1.0 - dm / mtnRampDist : 0.0);
+            const modulation = Math.max(0.10, gradDamp * elevBoost * basinDamp * (1.0 + 0.5 * mtnT * mtnT));
+
+            const i3 = 3 * r;
+            const x = r_xyz[i3], y = r_xyz[i3 + 1], z = r_xyz[i3 + 2];
+            const addVal = addNoise.fbm(x * halfFreq + 55.3, y * halfFreq + 18.7, z * halfFreq + 42.1, oct) * amp;
+            const subVal = subNoise.fbm(x * freq + 88.9, y * freq + 33.4, z * freq + 61.6, oct) * halfAmp;
+            const uniformContrib = (addVal - subVal) * modulation;
+            r_elevation[r] += uniformContrib;
+            dl_uniformNoise[r] = uniformContrib;
+        }
+    }
+
+    _timing.push({ stage: 'Uniform land noise', ms: performance.now() - _t0 }); _t0 = performance.now();
+
     // Compress positive elevations to soften tall peaks
     for (let r = 0; r < numRegions; r++) {
         if (r_elevation[r] > 0) {
@@ -1990,7 +2041,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Fill interior seas', ms: performance.now() - _t0 });
 
-    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor };
+    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor, uniformNoise: dl_uniformNoise };
     if (hasSuperPlates) {
         debugLayers.superPlates = new Float32Array(superPlateData.r_superPlate);
     }
