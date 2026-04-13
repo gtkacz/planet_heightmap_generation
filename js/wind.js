@@ -114,51 +114,103 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
         fillPos[bin]++;
     }
 
-    /**
-     * Sample land fraction and average elevation in a circular region.
-     * @param {number} lat - center latitude (radians)
-     * @param {number} lon - center longitude (radians)
-     * @param {number} radius - great-circle radius (radians)
-     */
-    return function sample(lat, lon, radius) {
+    // Reusable output objects to avoid per-call allocation
+    const _out = { landFrac: 0, avgElev: 0 };
+    const _outLocal = { landFrac: 0, avgElev: 0 };
+    const _outWide = { landFrac: 0, avgElev: 0 };
+
+    // Cache cosRadius for commonly used radii
+    const cosRadiusCache = new Map();
+    function getCosRadius(radius) {
+        let c = cosRadiusCache.get(radius);
+        if (c === undefined) { c = Math.cos(radius); cosRadiusCache.set(radius, c); }
+        return c;
+    }
+
+    function sample(lat, lon, radius) {
         const latMin = lat - radius, latMax = lat + radius;
         const bMin = Math.max(0, Math.floor((latMin + Math.PI / 2) / Math.PI * LAT_BINS));
         const bMax = Math.min(LAT_BINS - 1, Math.floor((latMax + Math.PI / 2) / Math.PI * LAT_BINS));
-
-        // Longitude span widens near equator
         const cosLat = Math.cos(lat) || 0.01;
         const lonSpan = radius / cosLat;
         const lMin = Math.floor((lon - lonSpan + Math.PI) / (2 * Math.PI) * LON_BINS);
         const lMax = Math.floor((lon + lonSpan + Math.PI) / (2 * Math.PI) * LON_BINS);
 
         let landCount = 0, totalCount = 0, elevSum = 0;
-        const cosRadius = Math.cos(radius);
+        const cosR = getCosRadius(radius);
         const sinLat0 = Math.sin(lat), cosLat0 = Math.cos(lat);
 
         for (let bi = bMin; bi <= bMax; bi++) {
             for (let li = lMin; li <= lMax; li++) {
                 const lj = ((li % LON_BINS) + LON_BINS) % LON_BINS;
                 const bin = bi * LON_BINS + lj;
-                const start = binOffset[bin];
-                const end = binOffset[bin + 1];
-                for (let k = start; k < end; k++) {
+                for (let k = binOffset[bin], end = binOffset[bin + 1]; k < end; k++) {
                     const r = indices[k];
-                    const sinLat1 = r_sinLat[r];
-                    const cosLat1 = r_cosLat[r];
-                    const dlon = r_lon[r] - lon;
-                    const cosDist = sinLat0 * sinLat1 + cosLat0 * cosLat1 * Math.cos(dlon);
-                    if (cosDist >= cosRadius) {
+                    const cosDist = sinLat0 * r_sinLat[r] + cosLat0 * r_cosLat[r] * Math.cos(r_lon[r] - lon);
+                    if (cosDist >= cosR) {
                         totalCount++;
                         if (r_isLand[r]) landCount++;
-                        elevSum += Math.max(0, r_elevation[r]);
+                        if (r_elevation[r] > 0) elevSum += r_elevation[r];
                     }
                 }
             }
         }
 
-        if (totalCount === 0) return { landFrac: 0, avgElev: 0 };
-        return { landFrac: landCount / totalCount, avgElev: elevSum / totalCount };
-    };
+        _out.landFrac = totalCount > 0 ? landCount / totalCount : 0;
+        _out.avgElev = totalCount > 0 ? elevSum / totalCount : 0;
+        return _out;
+    }
+
+    /**
+     * Dual-radius sample: scan bins once for the wider radius, classify each
+     * region into local and wide buckets based on distance. Avoids scanning
+     * overlapping bins twice when both radii share the same center.
+     */
+    function sampleDual(lat, lon, localRadius, wideRadius) {
+        const latMax = lat + wideRadius, latMin = lat - wideRadius;
+        const bMin = Math.max(0, Math.floor((latMin + Math.PI / 2) / Math.PI * LAT_BINS));
+        const bMax = Math.min(LAT_BINS - 1, Math.floor((latMax + Math.PI / 2) / Math.PI * LAT_BINS));
+        const cosLat = Math.cos(lat) || 0.01;
+        const lonSpan = wideRadius / cosLat;
+        const lMin = Math.floor((lon - lonSpan + Math.PI) / (2 * Math.PI) * LON_BINS);
+        const lMax = Math.floor((lon + lonSpan + Math.PI) / (2 * Math.PI) * LON_BINS);
+
+        let lLand = 0, lTotal = 0, lElev = 0;
+        let wLand = 0, wTotal = 0, wElev = 0;
+        const cosLocal = getCosRadius(localRadius);
+        const cosWide = getCosRadius(wideRadius);
+        const sinLat0 = Math.sin(lat), cosLat0 = Math.cos(lat);
+
+        for (let bi = bMin; bi <= bMax; bi++) {
+            for (let li = lMin; li <= lMax; li++) {
+                const lj = ((li % LON_BINS) + LON_BINS) % LON_BINS;
+                const bin = bi * LON_BINS + lj;
+                for (let k = binOffset[bin], end = binOffset[bin + 1]; k < end; k++) {
+                    const r = indices[k];
+                    const cosDist = sinLat0 * r_sinLat[r] + cosLat0 * r_cosLat[r] * Math.cos(r_lon[r] - lon);
+                    if (cosDist >= cosWide) {
+                        wTotal++;
+                        const isLand = r_isLand[r];
+                        const elev = r_elevation[r] > 0 ? r_elevation[r] : 0;
+                        if (isLand) wLand++;
+                        wElev += elev;
+                        if (cosDist >= cosLocal) {
+                            lTotal++;
+                            if (isLand) lLand++;
+                            lElev += elev;
+                        }
+                    }
+                }
+            }
+        }
+
+        _outLocal.landFrac = lTotal > 0 ? lLand / lTotal : 0;
+        _outLocal.avgElev = lTotal > 0 ? lElev / lTotal : 0;
+        _outWide.landFrac = wTotal > 0 ? wLand / wTotal : 0;
+        _outWide.avgElev = wTotal > 0 ? wElev / wTotal : 0;
+    }
+
+    return { sample, sampleDual, _outLocal, _outWide };
 }
 
 /**
@@ -172,12 +224,13 @@ function buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, 
  *   - Elevation boost (plateaus heat more intensely — thinner atmosphere)
  *   - Cross-equatorial anchoring (winter-hemisphere land pulls ITCZ equatorward)
  *
- * @param {function} geoSample - from buildGeoIndex
+ * @param {Object} geoIndex - from buildGeoIndex ({sample, sampleDual, _outLocal, _outWide})
  * @param {string} season - 'summer' (NH) or 'winter' (NH)
  * @param {number} tiltRad - axial tilt in radians
  * @returns {{ spline, lons: Float64Array, lats: Float64Array }}
  */
-function computeITCZ(geoSample, season, tiltRad) {
+function computeITCZ(geoIndex, season, tiltRad) {
+    const { sample: geoSample, sampleDual, _outLocal, _outWide } = geoIndex;
     const NUM_LON = 72;
     // Two sampling radii: local (5°) for precise land detection, wide (30°) for continental scale
     const localRadius = 5 * DEG;
@@ -196,6 +249,24 @@ function computeITCZ(geoSample, season, tiltRad) {
     const SCAN_STEP = 2.5;
     const numScans = Math.round((SCAN_MAX - SCAN_MIN) / SCAN_STEP) + 1;
 
+    // Pre-compute scan latitudes and their trig values (reused across all longitudes)
+    const scanLats = new Float64Array(numScans);
+    const scanLatDegs = new Float64Array(numScans);
+    const scanSolarScores = new Float64Array(numScans);
+    for (let si = 0; si < numScans; si++) {
+        const latDeg = SCAN_MIN + si * SCAN_STEP;
+        scanLatDegs[si] = latDeg;
+        scanLats[si] = latDeg * DEG;
+        const dSolar = (scanLats[si] - subsolarLat) * RAD;
+        scanSolarScores[si] = Math.exp(-0.5 * (dSolar / 25) ** 2);
+    }
+
+    // Pre-compute poleward latitudes for each scan step
+    const polewardLats = new Float64Array(numScans);
+    for (let si = 0; si < numScans; si++) {
+        polewardLats[si] = scanLats[si] + sign * 15 * DEG;
+    }
+
     const lons = new Float64Array(NUM_LON);
     const rawLats = new Float64Array(NUM_LON);
 
@@ -207,16 +278,13 @@ function computeITCZ(geoSample, season, tiltRad) {
         let bestLat = sign * 5 * DEG; // fallback
 
         for (let si = 0; si < numScans; si++) {
-            const latDeg = SCAN_MIN + si * SCAN_STEP;
-            const lat = latDeg * DEG;
-            const local = geoSample(lat, lon, localRadius);
-            const wide = geoSample(lat, lon, wideRadius);
+            const latDeg = scanLatDegs[si];
+            const lat = scanLats[si];
+            sampleDual(lat, lon, localRadius, wideRadius);
+            const local = _outLocal, wide = _outWide;
 
-            // (a) Solar insolation: peaks at subsolar latitude, broad Gaussian falloff.
-            // σ = 25° gives a wide heating dome — the ITCZ doesn't track the
-            // subsolar point 1:1, it lags and is damped by ocean thermal inertia.
-            const dSolar = (lat - subsolarLat) * RAD; // degrees from subsolar
-            const solarScore = Math.exp(-0.5 * (dSolar / 25) ** 2);
+            // (a) Solar insolation: pre-computed Gaussian falloff from subsolar point
+            const solarScore = scanSolarScores[si];
 
             // (b) Land thermal boost: uses multi-scale sampling.
             // Only truly continental-scale landmasses pull the ITCZ significantly.
@@ -229,8 +297,7 @@ function computeITCZ(geoSample, season, tiltRad) {
             // poleward (like Asia beyond 20°N) creates an enormous heat reservoir
             // that pulls the ITCZ toward it even if the scan point itself is at
             // the continent's edge. Sample 15° poleward in the summer hemisphere.
-            const polewardLat = lat + sign * 15 * DEG;
-            const poleward = geoSample(polewardLat, lon, wideRadius);
+            const poleward = geoSample(polewardLats[si], lon, wideRadius);  // single-radius, reuses _out
             // Combined land signal: max of local-wide and poleward-wide.
             // Poleward land contributes at 70% strength (heat diffuses equatorward).
             const effectiveWideLand = Math.max(wideLand, poleward.landFrac * 0.7);
@@ -528,9 +595,9 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     // ── Step 1: Build geographic index + compute ITCZ ──
 
     t0 = performance.now();
-    const geoSample = buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, numRegions);
-    const itczSummer = computeITCZ(geoSample, 'summer', tiltRad);
-    const itczWinter = computeITCZ(geoSample, 'winter', tiltRad);
+    const geoIndex = buildGeoIndex(r_lat, r_lon, r_sinLat, r_cosLat, r_elevation, r_isLand, numRegions);
+    const itczSummer = computeITCZ(geoIndex, 'summer', tiltRad);
+    const itczWinter = computeITCZ(geoIndex, 'winter', tiltRad);
     timing.push({ stage: 'Wind: ITCZ computation', ms: performance.now() - t0 });
 
     // ── Step 2–5: Compute pressure & wind for each season ──

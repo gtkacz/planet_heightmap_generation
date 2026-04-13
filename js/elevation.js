@@ -1580,19 +1580,53 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             volcPositions.push({ x: c.x, y: c.y, z: c.z, height, sigma: VOLC_SIGMA_BASE * sigmaVar });
         }
 
-        // Apply Gaussian cones to all nearby regions (land and ocean).
-        // Ocean cells get volcanic peaks that can breach sea level.
+        // Pre-compute invS2 per volcano (avoids redundant division in inner loop)
+        for (let vi = 0; vi < volcPositions.length; vi++) {
+            const v = volcPositions[vi];
+            v.invS2 = -0.5 / (v.sigma * v.sigma);
+        }
+
+        // Spatial grid for fast volcano lookup — bucket by (lat, lon) cell.
+        // Volcanoes affect regions within ~0.8° so a 5° grid with neighbor checks suffices.
+        const VLAT_BINS = 36, VLON_BINS = 72;
+        const volcGrid = new Array(VLAT_BINS * VLON_BINS);
+        for (let vi = 0; vi < volcPositions.length; vi++) {
+            const v = volcPositions[vi];
+            const lat = Math.asin(Math.max(-1, Math.min(1, v.y)));
+            const lon = Math.atan2(v.x, v.z);
+            const bi = Math.max(0, Math.min(VLAT_BINS - 1, Math.floor((lat + Math.PI / 2) / Math.PI * VLAT_BINS)));
+            const bj = Math.max(0, Math.min(VLON_BINS - 1, Math.floor((lon + Math.PI) / (2 * Math.PI) * VLON_BINS)));
+            const bin = bi * VLON_BINS + bj;
+            if (!volcGrid[bin]) volcGrid[bin] = [];
+            volcGrid[bin].push(vi);
+        }
+
+        // Apply Gaussian cones — only check volcanoes in nearby grid cells
         for (let r = 0; r < numRegions; r++) {
             const rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
+            const rLat = Math.asin(Math.max(-1, Math.min(1, ry)));
+            const rLon = Math.atan2(rx, rz);
+            const rbi = Math.max(0, Math.min(VLAT_BINS - 1, Math.floor((rLat + Math.PI / 2) / Math.PI * VLAT_BINS)));
+            const rbj = Math.max(0, Math.min(VLON_BINS - 1, Math.floor((rLon + Math.PI) / (2 * Math.PI) * VLON_BINS)));
+
             let volcUplift = 0;
-            for (let vi = 0; vi < volcPositions.length; vi++) {
-                const v = volcPositions[vi];
-                const dot = rx * v.x + ry * v.y + rz * v.z;
-                if (dot < 0.9999) continue; // early exit: too far (~0.8 deg)
-                const angleSq = Math.max(0, 2 * (1 - dot));
-                const invS2 = -0.5 / (v.sigma * v.sigma);
-                const gauss = Math.exp(angleSq * invS2);
-                if (gauss > 0.01) volcUplift += v.height * gauss;
+            // Check 3×3 neighborhood of grid cells
+            for (let di = -1; di <= 1; di++) {
+                const bi = rbi + di;
+                if (bi < 0 || bi >= VLAT_BINS) continue;
+                for (let dj = -1; dj <= 1; dj++) {
+                    const bj = ((rbj + dj) % VLON_BINS + VLON_BINS) % VLON_BINS;
+                    const cell = volcGrid[bi * VLON_BINS + bj];
+                    if (!cell) continue;
+                    for (let ci = 0; ci < cell.length; ci++) {
+                        const v = volcPositions[cell[ci]];
+                        const dot = rx * v.x + ry * v.y + rz * v.z;
+                        if (dot < 0.9999) continue;
+                        const angleSq = Math.max(0, 2 * (1 - dot));
+                        const gauss = Math.exp(angleSq * v.invS2);
+                        if (gauss > 0.01) volcUplift += v.height * gauss;
+                    }
+                }
             }
             if (volcUplift > 0.001) {
                 r_elevation[r] += volcUplift;
@@ -1874,28 +1908,57 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             dm.ageFactor = dm.chainLength > 0 ? dm.chainIndex / dm.chainLength : 0;
         }
 
-        // Apply dome uplift to all cells
+        // Spatial grid for dome lookup — swell radius can be wide (~3-5°),
+        // so use 10° bins with a 1-cell neighbor search.
+        const DLAT_BINS = 18, DLON_BINS = 36;
+        const domeGrid = new Array(DLAT_BINS * DLON_BINS);
+        for (let d = 0; d < domes.length; d++) {
+            const dm = domes[d];
+            const lat = Math.asin(Math.max(-1, Math.min(1, dm.y)));
+            const lon = Math.atan2(dm.x, dm.z);
+            const bi = Math.max(0, Math.min(DLAT_BINS - 1, Math.floor((lat + Math.PI / 2) / Math.PI * DLAT_BINS)));
+            const bj = Math.max(0, Math.min(DLON_BINS - 1, Math.floor((lon + Math.PI) / (2 * Math.PI) * DLON_BINS)));
+            const bin = bi * DLON_BINS + bj;
+            if (!domeGrid[bin]) domeGrid[bin] = [];
+            domeGrid[bin].push(d);
+        }
+
+        // Apply dome uplift — only check domes in nearby grid cells
         for (let r = 0; r < numRegions; r++) {
             const rx = r_xyz[3*r], ry = r_xyz[3*r+1], rz = r_xyz[3*r+2];
+            const rLat = Math.asin(Math.max(-1, Math.min(1, ry)));
+            const rLon = Math.atan2(rx, rz);
+            const rbi = Math.max(0, Math.min(DLAT_BINS - 1, Math.floor((rLat + Math.PI / 2) / Math.PI * DLAT_BINS)));
+            const rbj = Math.max(0, Math.min(DLON_BINS - 1, Math.floor((rLon + Math.PI) / (2 * Math.PI) * DLON_BINS)));
 
-            // Two-level early exit:
-            // Level 1 — check if near any dome's swell radius (cheap, wide)
-            let nearSwell = false;
-            let nearPeak  = false;
-            for (let d = 0; d < domes.length; d++) {
-                const dm = domes[d];
-                const cdot = dm.x * rx + dm.y * ry + dm.z * rz;
-                if (cdot > dm.cosThreshSwell) {
-                    nearSwell = true;
-                    if (cdot > dm.cosThreshPeak) { nearPeak = true; break; }
+            // Single pass: check nearby domes, track if any swell/peak is hit
+            let totalUplift = 0;
+            let totalSwellUplift = 0;
+            let weightedAge = 0;
+            let ageWeightSum = 0;
+            let nearPeak = false;
+            let shapeWarp = 1.0, shapeWarpSq = 1.0;
+            let hasContrib = false;
+
+            for (let di = -1; di <= 1; di++) {
+                const bi = rbi + di;
+                if (bi < 0 || bi >= DLAT_BINS) continue;
+                for (let dj = -1; dj <= 1; dj++) {
+                    const bj = ((rbj + dj) % DLON_BINS + DLON_BINS) % DLON_BINS;
+                    const cell = domeGrid[bi * DLON_BINS + bj];
+                    if (!cell) continue;
+                    for (let ci = 0; ci < cell.length; ci++) {
+                        const dm = domes[cell[ci]];
+                        const cdot = dm.x * rx + dm.y * ry + dm.z * rz;
+                        if (cdot > dm.cosThreshSwell) hasContrib = true;
+                        if (cdot > dm.cosThreshPeak && !nearPeak) nearPeak = true;
+                    }
                 }
             }
-            if (!nearSwell) continue;
+            if (!hasContrib) continue;
 
             // Compute shape warp only if near a peak (expensive noise)
-            let shapeWarp = 1.0, shapeWarpSq = 1.0;
             if (nearPeak) {
-                // #2: domain-warped fbm for aggressive shape distortion
                 const hsWarpScale = DOME_SHAPE_WARP_FREQ;
                 const wx = hsNoise2.fbm(rx * hsWarpScale + 5.1, ry * hsWarpScale + 3.7, rz * hsWarpScale + 9.2, 2, 0.5) * DOME_SHAPE_WARP_AMP;
                 const wy = hsNoise2.fbm(rx * hsWarpScale + 11.3, ry * hsWarpScale + 7.1, rz * hsWarpScale + 2.9, 2, 0.5) * DOME_SHAPE_WARP_AMP;
@@ -1906,13 +1969,15 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 shapeWarpSq = shapeWarp * shapeWarp;
             }
 
-            let totalUplift = 0;
-            let totalSwellUplift = 0;
-            let weightedAge = 0;
-            let ageWeightSum = 0;
-
-            for (let d = 0; d < domes.length; d++) {
-                const dm = domes[d];
+            for (let di = -1; di <= 1; di++) {
+                const bi = rbi + di;
+                if (bi < 0 || bi >= DLAT_BINS) continue;
+                for (let dj = -1; dj <= 1; dj++) {
+                    const bj = ((rbj + dj) % DLON_BINS + DLON_BINS) % DLON_BINS;
+                    const cell = domeGrid[bi * DLON_BINS + bj];
+                    if (!cell) continue;
+                    for (let ci = 0; ci < cell.length; ci++) {
+                        const dm = domes[cell[ci]];
                 const dot = dm.x * rx + dm.y * ry + dm.z * rz;
 
                 // --- Thermal swell (smooth, no warp) ---
@@ -1963,7 +2028,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     const calderaGauss = Math.exp(angleSq * dm.invS2Caldera);
                     totalUplift -= dm.calderaDepth * calderaGauss;
                 }
-            }
+            }}}
 
             const combinedUplift = totalSwellUplift + totalUplift;
             if (combinedUplift > 0.001) {
