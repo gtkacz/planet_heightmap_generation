@@ -240,8 +240,8 @@ export const CONT_HOTSPOT_CALDERA_DEPTH_FRAC = 0.30;  // deeper caldera
 export const CONT_HOTSPOT_SWELL_MULT = 1.5;      // wider swell around continental hotspot
 
 // ── Large Igneous Provinces (hotspot-driven) ──
-export const LIP_SIGMA = 0.12;
-export const LIP_HEIGHT = 0.02;
+export const LIP_SIGMA = 0.08;
+export const LIP_HEIGHT = 0.03;
 export const LIP_LOBE_COUNT = 6;
 export const LIP_LOBE_OFFSET = 0.6;        // offset in sigma units
 export const LIP_LOBE_SIGMA = 0.6;         // lobe sigma as fraction of parent
