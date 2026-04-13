@@ -73,11 +73,17 @@ import {
     VOLC_MIN_SPACING, VOLC_SIGMA_BASE, VOLC_HEIGHT_BASE,
     VOLC_HEIGHT_VAR_BASE, VOLC_HEIGHT_VAR_RANGE,
     VOLC_SIGMA_VAR_BASE, VOLC_SIGMA_VAR_RANGE, VOLC_SUBDUCT_THRESH,
-    LIP_SIGMA, LIP_HEIGHT,
+    LIP_SIGMA, LIP_HEIGHT, LIP_UPWELLING_THRESHOLD,
+    LIP_LOBE_COUNT, LIP_LOBE_OFFSET, LIP_LOBE_SIGMA, LIP_LOBE_STRENGTH,
+    CONT_HOTSPOT_SIGMA_MULT, CONT_HOTSPOT_STRENGTH_MULT,
+    CONT_HOTSPOT_CALDERA_SIGMA_FRAC, CONT_HOTSPOT_CALDERA_DEPTH_FRAC,
+    CONT_HOTSPOT_SWELL_MULT,
     NUM_HOTSPOTS, CHAIN_LENGTH, CHAIN_DECAY, CHAIN_SPACING,
     DOME_SIGMA, DOME_STRENGTH, SWELL_SIGMA_MULT, SWELL_STR_MULT,
     DOME_OCEAN_BOOST, DOME_PEAK_THRESH_SIGMA, DOME_SWELL_THRESH_SIGMA,
-    DOME_DRIFT_STRETCH, DOME_RIFT_BOOST, DOME_CALDERA_SIGMA_FRAC,
+    DOME_DRIFT_STRETCH,
+    DOME_SATELLITE_COUNT, DOME_SATELLITE_OFFSET, DOME_SATELLITE_SIGMA, DOME_SATELLITE_STRENGTH,
+    DOME_RIFT_BOOST, DOME_CALDERA_SIGMA_FRAC,
     DOME_CALDERA_DEPTH_FRAC, DOME_CALDERA_STRENGTH_MIN,
     DOME_AGE_BROADENING, DOME_SHAPE_WARP_FREQ, DOME_SHAPE_WARP_AMP,
     DOME_SHAPE_WARP_DETAIL_FREQ, DOME_SHAPE_WARP_DETAIL_AMP,
@@ -392,6 +398,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     const dl_coastal  = new Float32Array(numRegions);
     const dl_ocean    = new Float32Array(numRegions);
     const dl_hotspot  = new Float32Array(numRegions);
+    const dl_lip      = new Float32Array(numRegions);
     const dl_tecActivity = new Float32Array(numRegions);
     const dl_margins = new Float32Array(numRegions);
     const dl_backArc = new Float32Array(numRegions);
@@ -1594,57 +1601,12 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         }
     }
 
-    // Large Igneous Provinces — broad flood basalt regions on continental interiors.
-    // Subtle, very wide elevation bumps adding variety to interior topography.
-    {
-        const lipRng = makeRng(seed + 821);
-        const NUM_LIPS = Math.round(1 + lipRng() * 2);  // 1-3 LIPs
-        // LIP_SIGMA ~250km angular radius, LIP_HEIGHT imported from config
+    // Large Igneous Provinces — hotspot-driven flood basalt plateaus.
+    // Spawned at continental hotspot positions backed by strong mantle upwelling.
+    // Collected during hotspot generation below, applied here.
+    const lipSites = [];  // populated by hotspot loop if continental + strong upwelling
 
-        const lips = [];
-        for (let i = 0; i < NUM_LIPS; i++) {
-            const theta = 2 * Math.PI * lipRng();
-            const cosPhi = 2 * lipRng() - 1;
-            const sinPhi = Math.sqrt(1 - cosPhi * cosPhi);
-            const lx = sinPhi * Math.cos(theta);
-            const ly = sinPhi * Math.sin(theta);
-            const lz = cosPhi;
-
-            // Find nearest land interior region
-            let bestR = -1, bestDot = -2;
-            for (let r = 0; r < numRegions; r++) {
-                if (r_isOcean[r]) continue;
-                if (dist_coast_land[r] < interiorBand * 0.3) continue;
-                const dot = lx * r_xyz[3 * r] + ly * r_xyz[3 * r + 1] + lz * r_xyz[3 * r + 2];
-                if (dot > bestDot) { bestDot = dot; bestR = r; }
-            }
-            if (bestR >= 0) {
-                lips.push({
-                    x: r_xyz[3 * bestR], y: r_xyz[3 * bestR + 1], z: r_xyz[3 * bestR + 2],
-                    sigma: LIP_SIGMA * (0.7 + 0.6 * lipRng()),
-                    height: LIP_HEIGHT * (0.5 + lipRng())
-                });
-            }
-        }
-
-        for (let r = 0; r < numRegions; r++) {
-            if (r_isOcean[r]) continue;
-            const rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
-            for (let li = 0; li < lips.length; li++) {
-                const lip = lips[li];
-                const dot = rx * lip.x + ry * lip.y + rz * lip.z;
-                const angleSq = Math.max(0, 2 * (1 - dot));
-                const invS2 = -0.5 / (lip.sigma * lip.sigma);
-                const gauss = Math.exp(angleSq * invS2);
-                if (gauss > 0.01) {
-                    r_elevation[r] += lip.height * gauss;
-                    dl_interior[r] += lip.height * gauss;
-                }
-            }
-        }
-    }
-
-    _timing.push({ stage: 'Volcanic arcs + LIPs', ms: performance.now() - _t0 }); _t0 = performance.now();
+    _timing.push({ stage: 'Volcanic arcs', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Hotspot volcanism — mantle plumes with drift chains
     // Dual-component model: broad thermal swell + volcanic peak with
@@ -1686,6 +1648,36 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             }
             return bestR;
         };
+        // Spawn satellite sub-cones around a parent dome for organic multi-lobed shape
+        const spawnSatellites = (parent, satRng) => {
+            for (let s = 0; s < DOME_SATELLITE_COUNT; s++) {
+                // Random direction on tangent plane at parent position
+                const angle = satRng() * 2 * Math.PI;
+                const offDist = parent.sigma * DOME_SATELLITE_OFFSET * (0.5 + satRng() * 0.5);
+                const offX = Math.cos(angle) * parent.ux + Math.sin(angle) * parent.vx;
+                const offY = Math.cos(angle) * parent.uy + Math.sin(angle) * parent.vy;
+                const offZ = Math.cos(angle) * parent.uz + Math.sin(angle) * parent.vz;
+                // Step along sphere surface
+                const cosA = Math.cos(offDist), sinA = Math.sin(offDist);
+                let sx = parent.x * cosA + offX * sinA;
+                let sy = parent.y * cosA + offY * sinA;
+                let sz = parent.z * cosA + offZ * sinA;
+                const sLen = Math.sqrt(sx * sx + sy * sy + sz * sz);
+                sx /= sLen; sy /= sLen; sz /= sLen;
+                const satFrame = buildTangentFrame(sx, sy, sz, parent.dx, parent.dy, parent.dz);
+                domes.push({
+                    x: sx, y: sy, z: sz,
+                    strength: parent.strength * DOME_SATELLITE_STRENGTH,
+                    baseStrength: parent.baseStrength * DOME_SATELLITE_STRENGTH,
+                    sigma: parent.sigma * DOME_SATELLITE_SIGMA,
+                    chainIndex: parent.chainIndex, chainLength: parent.chainLength,
+                    dx: parent.dx, dy: parent.dy, dz: parent.dz,
+                    ...satFrame,
+                    riftAngles: [],  // satellites don't have rift zones
+                });
+            }
+        };
+
         for (let h = 0; h < NUM_HOTSPOTS; h++) {
             const hStrength = DOME_STRENGTH * (0.4 + hsRng() * 1.2);
             const hSigma    = DOME_SIGMA * (0.4 + hsRng() * 1.2);
@@ -1726,7 +1718,20 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             drift[0] /= driftLen; drift[1] /= driftLen; drift[2] /= driftLen;
 
             const isOceanHotspot = plateIsOcean.has(plate);
+            const isContinental = !isOceanHotspot;
+
+            // Continental hotspots use plateau mode: wider, flatter, bigger caldera
+            const sigmaScale = isContinental ? CONT_HOTSPOT_SIGMA_MULT : 1.0;
+            const strengthScale = isContinental ? CONT_HOTSPOT_STRENGTH_MULT : 1.0;
             const oceanBoost = isOceanHotspot ? DOME_OCEAN_BOOST : 1.0;
+            const effectiveSigma = hSigma * sigmaScale;
+            const effectiveStrength = hStrength * strengthScale * oceanBoost;
+
+            // Continental hotspot over strong upwelling → spawn LIP (flood basalt plateau)
+            // Continental hotspot: LIP spawns at the END of the chain (oldest point),
+            // representing the initial plume head impact. The active dome and trail
+            // are the ongoing Yellowstone-style volcanism at a different location.
+            // LIP position is computed after the chain trail is built (see below).
 
             // Rift angles: 2-3 evenly spaced rifts for active dome, fewer for older
             const baseRiftAngle = hsNoise3.noise3D(hx*10, hy*10, hz*10) * Math.PI;
@@ -1737,18 +1742,19 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 return [];
             };
 
-            // Active dome — store base strength (no ocean boost) for swell;
-            // peak strength gets ocean boost so it punches through ocean floor.
+            // Active dome
             const frame0 = buildTangentFrame(hx, hy, hz, drift[0], drift[1], drift[2]);
             domes.push({
                 x: hx, y: hy, z: hz,
-                strength: hStrength * oceanBoost, baseStrength: hStrength,
-                sigma: hSigma,
+                strength: effectiveStrength, baseStrength: hStrength * strengthScale,
+                sigma: effectiveSigma,
                 chainIndex: 0, chainLength: hLength,
                 dx: drift[0], dy: drift[1], dz: drift[2],
                 ...frame0,
                 riftAngles: riftAnglesForDome(0, hLength),
+                isContinental,
             });
+            spawnSatellites(domes[domes.length - 1], hsRng);
 
             // Chain trail
             let perpX = drift[1] * hz - drift[2] * hy;
@@ -1758,8 +1764,8 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             perpX /= perpLen; perpY /= perpLen; perpZ /= perpLen;
 
             let cx = hx, cy = hy, cz = hz;
-            let str = hStrength * oceanBoost;
-            let baseStr = hStrength;
+            let str = effectiveStrength;
+            let baseStr = hStrength * strengthScale;
             for (let c = 0; c < hLength; c++) {
                 const ci = c + 1; // chainIndex (0 = active, 1+ = trail)
                 const decayJitter = hDecay * (0.7 + hsRng() * 0.6);
@@ -1768,7 +1774,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const stepSpacing = CHAIN_SPACING * (0.3 + hsRng() * 1.4);
                 // #4: age broadening — older domes get wider
                 const ageBroadening = 1.0 + ci * DOME_AGE_BROADENING;
-                const stepSigma = hSigma * (0.5 + hsRng() * 1.0) * ageBroadening;
+                const stepSigma = effectiveSigma * (0.5 + hsRng() * 1.0) * ageBroadening;
                 const wobble = (hsRng() - 0.5) * 0.8;
                 const ddx = -drift[0] + perpX * wobble;
                 const ddy = -drift[1] + perpY * wobble;
@@ -1795,7 +1801,49 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     dx: drift[0], dy: drift[1], dz: drift[2],
                     ...frameC,
                     riftAngles: riftAnglesForDome(ci, hLength),
+                    isContinental,
                 });
+                // Only spawn satellites on younger islands (older ones erode to single peaks)
+                if (ci <= Math.ceil(hLength * 0.4)) {
+                    spawnSatellites(domes[domes.length - 1], hsRng);
+                }
+            }
+
+            // Spawn LIP at the oldest end of the chain (plume head impact site).
+            // LIPs form regardless of ocean/land — the plume head erupts wherever
+            // it arrives. Continental LIPs are more prominent (Deccan, Siberian Traps);
+            // oceanic LIPs form oceanic plateaus (Ontong Java).
+            {
+                const lipR = findNearestR(cx, cy, cz);
+                const upwelling = r_mantleNorm ? Math.max(0, r_mantleNorm[lipR]) : 0.5;
+                const landBoost = r_isOcean[lipR] ? 0.6 : 1.0;
+                const baseLipStr = LIP_HEIGHT * (0.5 + hsRng()) * (0.5 + upwelling) * landBoost;
+                const baseLipSigma = LIP_SIGMA * (0.7 + 0.6 * hsRng());
+
+                // Main LIP body
+                lipSites.push({ x: cx, y: cy, z: cz, sigma: baseLipSigma, height: baseLipStr });
+
+                // Irregular lobes: smaller overlapping Gaussians at random offsets
+                // Creates the irregular outline of real flood basalt provinces
+                const lipFrame = buildTangentFrame(cx, cy, cz, drift[0], drift[1], drift[2]);
+                for (let lb = 0; lb < LIP_LOBE_COUNT; lb++) {
+                    const angle = hsRng() * 2 * Math.PI;
+                    const dist = baseLipSigma * LIP_LOBE_OFFSET * (0.4 + hsRng() * 0.6);
+                    const offX = Math.cos(angle) * lipFrame.ux + Math.sin(angle) * lipFrame.vx;
+                    const offY = Math.cos(angle) * lipFrame.uy + Math.sin(angle) * lipFrame.vy;
+                    const offZ = Math.cos(angle) * lipFrame.uz + Math.sin(angle) * lipFrame.vz;
+                    const cosD = Math.cos(dist), sinD = Math.sin(dist);
+                    let lx = cx * cosD + offX * sinD;
+                    let ly = cy * cosD + offY * sinD;
+                    let lz = cz * cosD + offZ * sinD;
+                    const ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+                    lx /= ll; ly /= ll; lz /= ll;
+                    lipSites.push({
+                        x: lx, y: ly, z: lz,
+                        sigma: baseLipSigma * LIP_LOBE_SIGMA * (0.6 + hsRng() * 0.8),
+                        height: baseLipStr * LIP_LOBE_STRENGTH * (0.5 + hsRng() * 0.5),
+                    });
+                }
             }
         }
 
@@ -1807,17 +1855,20 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
             dm.invS2 = -0.5 / (dm.sigma * dm.sigma);
             // Swell uses base strength (no ocean boost) so it doesn't
             // broadly raise ocean floor — only peaks punch through.
-            const swSigma = dm.sigma * SWELL_SIGMA_MULT;
+            const swMult = dm.isContinental ? CONT_HOTSPOT_SWELL_MULT : 1.0;
+            const swSigma = dm.sigma * SWELL_SIGMA_MULT * swMult;
             dm.swellSigma = swSigma;
             dm.swellStrength = dm.baseStrength * SWELL_STR_MULT;
             dm.cosThreshSwell = Math.cos(swSigma * DOME_SWELL_THRESH_SIGMA);
             dm.invS2Swell = -0.5 / (swSigma * swSigma);
             // #5: drift elongation scale factor (1/1.4 for parallel axis)
             dm.driftStretch = 1.0 / DOME_DRIFT_STRETCH;
-            // #6: caldera (only on active or most recent chain member with enough strength)
+            // #6: caldera — continental hotspots get wider, deeper calderas
             dm.hasCaldera = dm.chainIndex <= 1 && dm.strength > DOME_CALDERA_STRENGTH_MIN;
-            dm.calderaSigma = dm.sigma * DOME_CALDERA_SIGMA_FRAC;
-            dm.calderaDepth = dm.strength * DOME_CALDERA_DEPTH_FRAC;
+            const calSigFrac = dm.isContinental ? CONT_HOTSPOT_CALDERA_SIGMA_FRAC : DOME_CALDERA_SIGMA_FRAC;
+            const calDepFrac = dm.isContinental ? CONT_HOTSPOT_CALDERA_DEPTH_FRAC : DOME_CALDERA_DEPTH_FRAC;
+            dm.calderaSigma = dm.sigma * calSigFrac;
+            dm.calderaDepth = dm.strength * calDepFrac;
             dm.invS2Caldera = -0.5 / (dm.calderaSigma * dm.calderaSigma);
             // Age factor for texture (0 = active = most textured, 1 = oldest = smooth)
             dm.ageFactor = dm.chainLength > 0 ? dm.chainIndex / dm.chainLength : 0;
@@ -1935,7 +1986,27 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         }
     }
 
-    _timing.push({ stage: 'Hotspot volcanism', ms: performance.now() - _t0 }); _t0 = performance.now();
+    // Apply LIP flood basalt plateaus (sites collected from continental hotspots above)
+    if (lipSites.length > 0) {
+        for (let r = 0; r < numRegions; r++) {
+            const rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
+            for (let li = 0; li < lipSites.length; li++) {
+                const lip = lipSites[li];
+                const d = rx * lip.x + ry * lip.y + rz * lip.z;
+                const angleSq = Math.max(0, 2 * (1 - d));
+                const invS2 = -0.5 / (lip.sigma * lip.sigma);
+                const gauss = Math.exp(angleSq * invS2);
+                if (gauss > 0.01) {
+                    const contrib = lip.height * gauss;
+                    r_elevation[r] += contrib;
+                    dl_lip[r] += contrib;
+                    dl_hotspot[r] += contrib;
+                }
+            }
+        }
+    }
+
+    _timing.push({ stage: 'Hotspot volcanism + LIPs', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Uniform land noise: two independent noise layers (additive + subtractive)
     // applied to every region on a land plate or above sea level.
@@ -2101,7 +2172,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
 
     _timing.push({ stage: 'Fill interior seas', ms: performance.now() - _t0 });
 
-    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor, uniformNoise: dl_uniformNoise, dynamicTopo: dl_dynamicTopo };
+    const debugLayers = { base: dl_base, tectonic: dl_tectonic, noise: dl_noise, interior: dl_interior, coastal: dl_coastal, ocean: dl_ocean, hotspot: dl_hotspot, lip: dl_lip, tecActivity: dl_tecActivity, margins: dl_margins, backArc: dl_backArc, foldRidge: dl_foldRidge, orogenicPower: dl_orogenicPower, basin: r_basinFactor, uniformNoise: dl_uniformNoise, dynamicTopo: dl_dynamicTopo };
     if (hasSuperPlates) {
         debugLayers.superPlates = new Float32Array(superPlateData.r_superPlate);
     }
