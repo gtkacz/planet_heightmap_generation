@@ -296,6 +296,7 @@ if (worker) {
                         if (d.debugLayers) {
                             d.debugLayers.tempSummer = tempResult.r_temperature_summer;
                             d.debugLayers.tempWinter = tempResult.r_temperature_winter;
+                            d.debugLayers.tempContinentality = tempResult.r_tempContinentality;
                         }
                         console.log(`[generate.js] Temperature computed on main thread in ${(performance.now() - t0Temp).toFixed(0)} ms`);
                     }
@@ -801,6 +802,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 ctx.tempResult = tempResult;
                 debugLayers.tempSummer = tempResult.r_temperature_summer;
                 debugLayers.tempWinter = tempResult.r_temperature_winter;
+                debugLayers.tempContinentality = tempResult.r_tempContinentality;
                 debugLayers.koppen = classifyKoppen(ctx.mesh, r_elevation, tempResult, precipResult);
             }
             const t_elevation = new Float32Array(ctx.mesh.numTriangles);

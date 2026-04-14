@@ -233,6 +233,32 @@ function continentalityColor(value) {
     }
 }
 
+// Temperature continentality zones: 5 discrete colors matching the guide's zones.
+// 0.0 = Hyperoceanic (deep blue), 0.25 = Oceanic (teal), 0.5 = Subcontinental (green),
+// 0.75 = Continental (orange), 1.0 = Hypercontinental (red). Smoothed values interpolate.
+function tempContinentalityColor(value) {
+    // Ocean cells stored as -1 → clean dark blue
+    if (value < 0) return [0.06, 0.08, 0.22];
+    const t = Math.max(0, Math.min(1, value));
+    // 5 zone colors
+    const zones = [
+        [0.10, 0.20, 0.65],  // Hyperoceanic: deep blue
+        [0.15, 0.55, 0.65],  // Oceanic: teal
+        [0.30, 0.70, 0.25],  // Subcontinental: green
+        [0.85, 0.60, 0.15],  // Continental: orange
+        [0.80, 0.15, 0.10],  // Hypercontinental: red
+    ];
+    const idx = t * 4; // 0..4
+    const lo = Math.min(Math.floor(idx), 3);
+    const hi = lo + 1;
+    const f = idx - lo;
+    return [
+        zones[lo][0] + (zones[hi][0] - zones[lo][0]) * f,
+        zones[lo][1] + (zones[hi][1] - zones[lo][1]) * f,
+        zones[lo][2] + (zones[hi][2] - zones[lo][2]) * f,
+    ];
+}
+
 // Temperature debug color: discrete bands matching real climate map style.
 // Input is 0-1 normalized from -45 to +45 C. Convert back to C for thresholds.
 function temperatureColor(value) {
@@ -304,7 +330,9 @@ export function buildMapMesh() {
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    const isTempCont = debugLayer === 'tempContinentality';
+    const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -357,6 +385,8 @@ export function buildMapMesh() {
                 cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
             } else if (isCont && contArr) {
                 [cr, cg, cb] = continentalityColor(contArr[br]);
+            } else if (isTempCont && tempContArr) {
+                [cr, cg, cb] = tempContinentalityColor(tempContArr[br]);
             } else if (isKoppen && koppenArr) {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
             } else if (isTemp && tempArr) {
@@ -735,7 +765,9 @@ export function buildMesh() {
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    const isTempCont = debugLayer === 'tempContinentality';
+    const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -818,6 +850,8 @@ export function buildMesh() {
                 cr = biomeSmoothed[br * 3]; cg = biomeSmoothed[br * 3 + 1]; cb = biomeSmoothed[br * 3 + 2];
             } else if (isCont && contArr) {
                 [cr, cg, cb] = continentalityColor(contArr[br]);
+            } else if (isTempCont && tempContArr) {
+                [cr, cg, cb] = tempContinentalityColor(tempContArr[br]);
             } else if (isKoppen && koppenArr) {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
             } else if (isTemp && tempArr) {
@@ -971,7 +1005,9 @@ export function updateMeshColors() {
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    const isTempCont = debugLayer === 'tempContinentality';
+    const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -986,6 +1022,7 @@ export function updateMeshColors() {
     const getRegionColor = (br) => {
         if (isBiome && biomeSmoothed) return [biomeSmoothed[br * 3], biomeSmoothed[br * 3 + 1], biomeSmoothed[br * 3 + 2]];
         if (isCont && contArr) return continentalityColor(contArr[br]);
+        if (isTempCont && tempContArr) return tempContinentalityColor(tempContArr[br]);
         if (isKoppen && koppenArr) return koppenColor(koppenArr[br]);
         if (isTemp && tempArr) return temperatureColor(tempArr[br]);
         if (isPrecip && precipArr) return precipitationColor(precipArr[br]);
