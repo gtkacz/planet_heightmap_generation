@@ -91,10 +91,12 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         const Tann  = (Ts + Tw) / 2;
 
         // "Shoulder-month" temperature: approximate the temp 2 months before
-        // peak summer.  With only 2 seasons we interpolate 2/6 of the way from
-        // peak toward cold.  Used for the humid-continental / subarctic split
-        // and for the tempLetter 'b' criterion (4+ months >= 10°C).
-        const Tshoulder = Thot - (Thot - Tcold) * (2 / 6);
+        // peak summer.  With only 2 seasons we interpolate partway from peak
+        // toward cold.  The fraction 1.5/6 (vs the old 2/6) prevents extreme
+        // continental winters from dragging shoulder temps too low — in reality
+        // shoulder months track closer to the summer peak than to the annual
+        // mean when the swing is very asymmetric in duration.
+        const Tshoulder = Thot - (Thot - Tcold) * (1.2 / 6);
 
         // ── Hemisphere-aware local seasons ──
         // Determine which simulation season is this cell's LOCAL warm season.
