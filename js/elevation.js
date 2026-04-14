@@ -1854,12 +1854,20 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                 const baseLipStr = LIP_HEIGHT * (0.5 + hsRng()) * (0.5 + upwelling) * landBoost;
                 const baseLipSigma = LIP_SIGMA * (0.7 + 0.6 * hsRng());
 
-                // Main LIP body
-                lipSites.push({ x: cx, y: cy, z: cz, sigma: baseLipSigma, height: baseLipStr });
-
-                // Irregular lobes: smaller overlapping Gaussians at random offsets
-                // Creates the irregular outline of real flood basalt provinces
+                // Main LIP body — elliptical, not circular.
+                // Elongation axis aligns with plate drift direction;
+                // aspect ratio varies 1.5–3× for organic shapes.
                 const lipFrame = buildTangentFrame(cx, cy, cz, drift[0], drift[1], drift[2]);
+                const lipAspect = 1.5 + hsRng() * 1.5;
+                lipSites.push({
+                    x: cx, y: cy, z: cz,
+                    sigma: baseLipSigma, height: baseLipStr,
+                    ux: lipFrame.ux, uy: lipFrame.uy, uz: lipFrame.uz,
+                    vx: lipFrame.vx, vy: lipFrame.vy, vz: lipFrame.vz,
+                    aspect: lipAspect,
+                });
+
+                // Irregular lobes: smaller overlapping elliptical Gaussians
                 for (let lb = 0; lb < LIP_LOBE_COUNT; lb++) {
                     const angle = hsRng() * 2 * Math.PI;
                     const dist = baseLipSigma * LIP_LOBE_OFFSET * (0.4 + hsRng() * 0.6);
@@ -1872,10 +1880,19 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
                     let lz = cz * cosD + offZ * sinD;
                     const ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
                     lx /= ll; ly /= ll; lz /= ll;
+                    const lobeAngle = hsRng() * Math.PI;
+                    const ca = Math.cos(lobeAngle), sa = Math.sin(lobeAngle);
                     lipSites.push({
                         x: lx, y: ly, z: lz,
                         sigma: baseLipSigma * LIP_LOBE_SIGMA * (0.6 + hsRng() * 0.8),
                         height: baseLipStr * LIP_LOBE_STRENGTH * (0.5 + hsRng() * 0.5),
+                        ux: ca * lipFrame.ux + sa * lipFrame.vx,
+                        uy: ca * lipFrame.uy + sa * lipFrame.vy,
+                        uz: ca * lipFrame.uz + sa * lipFrame.vz,
+                        vx: -sa * lipFrame.ux + ca * lipFrame.vx,
+                        vy: -sa * lipFrame.uy + ca * lipFrame.vy,
+                        vz: -sa * lipFrame.uz + ca * lipFrame.vz,
+                        aspect: 1.2 + hsRng() * 1.3,
                     });
                 }
             }
@@ -2051,16 +2068,36 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
         }
     }
 
-    // Apply LIP flood basalt plateaus (sites collected from continental hotspots above)
+    // Apply LIP flood basalt plateaus (elliptical + domain-warped)
     if (lipSites.length > 0) {
+        const lipWarpNoise = new SimplexNoise(seed + 7771);
+        const lipWarpAmp = 0.08;
+
         for (let r = 0; r < numRegions; r++) {
-            const rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
+            let rx = r_xyz[3 * r], ry = r_xyz[3 * r + 1], rz = r_xyz[3 * r + 2];
+
+            // Domain warp for irregular boundaries
+            const wx = rx + lipWarpNoise.noise3D(rx * 6, ry * 6, rz * 6) * lipWarpAmp;
+            const wy = ry + lipWarpNoise.noise3D(rx * 6 + 40, ry * 6 + 40, rz * 6 + 40) * lipWarpAmp;
+            const wz = rz + lipWarpNoise.noise3D(rx * 6 + 80, ry * 6 + 80, rz * 6 + 80) * lipWarpAmp;
+            const wl = Math.sqrt(wx * wx + wy * wy + wz * wz);
+            const wrx = wx / wl, wry = wy / wl, wrz = wz / wl;
+
             for (let li = 0; li < lipSites.length; li++) {
                 const lip = lipSites[li];
-                const d = rx * lip.x + ry * lip.y + rz * lip.z;
-                const angleSq = Math.max(0, 2 * (1 - d));
+                const dot = wrx * lip.x + wry * lip.y + wrz * lip.z;
+                if (dot < 0.9) continue;
+
+                const dx = wrx - lip.x * dot;
+                const dy = wry - lip.y * dot;
+                const dz = wrz - lip.z * dot;
+                const du = dx * lip.ux + dy * lip.uy + dz * lip.uz;
+                const dv = dx * lip.vx + dy * lip.vy + dz * lip.vz;
+                const aspect = lip.aspect || 1.0;
+                const ellipDist = (du * du) / (aspect * aspect) + dv * dv;
+
                 const invS2 = -0.5 / (lip.sigma * lip.sigma);
-                const gauss = Math.exp(angleSq * invS2);
+                const gauss = Math.exp(ellipDist * invS2);
                 if (gauss > 0.01) {
                     const contrib = lip.height * gauss;
                     r_elevation[r] += contrib;
