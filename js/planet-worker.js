@@ -311,6 +311,7 @@ function handleGenerate(data) {
             if (tempResult._tempTiming) timing.push(...tempResult._tempTiming);
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             t0 = performance.now();
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
@@ -583,6 +584,7 @@ function handleEditRecompute(data) {
             tTemp = performance.now() - t0;
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
 
@@ -938,6 +940,7 @@ function handleImportHeightmap(data) {
             timing.push({ stage: 'Temperature', ms: performance.now() - t0 });
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             t0 = performance.now();
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
