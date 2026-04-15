@@ -136,8 +136,9 @@ const ZONE_HC = 1.0;    // Hypercontinental
 
 function computeTempContinentality(
     mesh, r_xyz, r_isLand, r_lat, r_lon,
-    r_eastX, r_eastY, r_eastZ,
+    r_eastX, r_eastY, r_eastZ, r_northX, r_northY, r_northZ,
     r_ocean_warmth_summer,
+    r_coastDistLand,
     avgEdgeKm
 ) {
     const { adjOffset, adjList, numRegions } = mesh;
@@ -251,7 +252,7 @@ function computeTempContinentality(
             continue;
         }
 
-        // Subcontinental: 35°+ on landmasses with enough area at 35-70° and wide enough E-W
+        // Subcontinental: 35°+ on landmasses with enough area and width
         if (absLatDeg >= 35 &&
             band35_70 > 4_500_000 &&
             ewWidth > 2000) {
@@ -321,6 +322,163 @@ function computeTempContinentality(
         }
     }
 
+    // ── Stage A2: Subcontinental refinements ───────────────────────────────
+    // The guide lists several conditions that erase or push back the
+    // subcontinental zone.  We apply them as post-processing on zone >= SC.
+
+    // (a) Per-latitude E-W width check: subcontinental must be >= 2000km
+    //     wide at each latitude band, not just globally.  Reuse the
+    //     per-component per-hemisphere lon-bin infrastructure at finer
+    //     resolution (1° bins).
+    {
+        const SC_LON_BINS = 720;
+        const SC_LAT_BAND = 2;
+        const SC_NUM_LAT = Math.ceil(90 / SC_LAT_BAND); // 18 bands per hemisphere
+        // Build per-component per-hemisphere per-lat-band lon occupancy
+        // Index: [id * SC_NUM_LAT * SC_LON_BINS + latIdx * SC_LON_BINS + lonBin]
+        const scLonBinsN = new Uint8Array(numComponents * SC_NUM_LAT * SC_LON_BINS);
+        const scLonBinsS = new Uint8Array(numComponents * SC_NUM_LAT * SC_LON_BINS);
+
+        for (let r = 0; r < numRegions; r++) {
+            if (!r_isLand[r]) continue;
+            const latDeg = r_lat[r] / DEG;
+            const absLatDeg = Math.abs(latDeg);
+            if (absLatDeg < 35) continue;
+            const id = r_label[r];
+            const latIdx = Math.min(SC_NUM_LAT - 1, Math.floor(absLatDeg / SC_LAT_BAND));
+            const lonNorm = (r_lon[r] + Math.PI) / (2 * Math.PI);
+            const lonBin = Math.min(SC_LON_BINS - 1, Math.floor(lonNorm * SC_LON_BINS));
+            if (latDeg >= 0) {
+                scLonBinsN[id * SC_NUM_LAT * SC_LON_BINS + latIdx * SC_LON_BINS + lonBin] = 1;
+            } else {
+                scLonBinsS[id * SC_NUM_LAT * SC_LON_BINS + latIdx * SC_LON_BINS + lonBin] = 1;
+            }
+        }
+
+        // Compute per-lat-band E-W width
+        const scBinRad = 2 * Math.PI / SC_LON_BINS;
+        for (let r = 0; r < numRegions; r++) {
+            if (zone[r] < ZONE_SC) continue; // only refine SC+
+            const latDeg = r_lat[r] / DEG;
+            const absLatDeg = Math.abs(latDeg);
+            const id = r_label[r];
+            const latIdx = Math.min(SC_NUM_LAT - 1, Math.floor(absLatDeg / SC_LAT_BAND));
+            const bins = latDeg >= 0 ? scLonBinsN : scLonBinsS;
+            const base = id * SC_NUM_LAT * SC_LON_BINS + latIdx * SC_LON_BINS;
+
+            // Find largest gap to get span
+            let occupied = 0;
+            for (let b = 0; b < SC_LON_BINS; b++) {
+                if (bins[base + b]) occupied++;
+            }
+            if (occupied < 2) {
+                zone[r] = Math.min(zone[r], ZONE_OC);
+                continue;
+            }
+            let maxGap = 0, gap = 0;
+            for (let i = 0; i < SC_LON_BINS * 2; i++) {
+                if (!bins[base + (i % SC_LON_BINS)]) {
+                    gap++;
+                    if (gap > maxGap) maxGap = gap;
+                } else {
+                    gap = 0;
+                }
+            }
+            maxGap = Math.min(maxGap, SC_LON_BINS);
+            const spanKm = (SC_LON_BINS - maxGap) * scBinRad * Math.cos(r_lat[r]) * 6371;
+            if (spanKm < 2000) {
+                zone[r] = Math.min(zone[r], ZONE_OC);
+            }
+        }
+    }
+
+    // (b) North/south coast shave: erase 175km of subcontinental+
+    //     from north- and south-facing coasts in the mid-latitudes.
+    //     For each cell, scan poleward and equatorward through latitude
+    //     bands until hitting an empty band (ocean).  Use the same
+    //     per-component lon-bin grid from (a) to check occupancy.
+    //     We reuse scLonBinsN/S from the block above — but they were
+    //     scoped.  Rebuild a simpler per-component lat-band occupancy.
+    {
+        const NS_LAT_BAND = 1; // 1° bands for fine resolution
+        const NS_NUM_LAT = Math.ceil(90 / NS_LAT_BAND); // 90 bands per hemisphere
+        const NS_LON_BINS = 360; // 1° lon bins
+
+        // Per-component per-hemisphere: is there land at [latBand][lonBin]?
+        const nsOccN = new Uint8Array(numComponents * NS_NUM_LAT * NS_LON_BINS);
+        const nsOccS = new Uint8Array(numComponents * NS_NUM_LAT * NS_LON_BINS);
+
+        for (let r = 0; r < numRegions; r++) {
+            if (!r_isLand[r]) continue;
+            const latDeg = r_lat[r] / DEG;
+            const absLatDeg = Math.abs(latDeg);
+            const id = r_label[r];
+            const latIdx = Math.min(NS_NUM_LAT - 1, Math.floor(absLatDeg / NS_LAT_BAND));
+            const lonNorm = (r_lon[r] + Math.PI) / (2 * Math.PI);
+            const lonBin = Math.min(NS_LON_BINS - 1, Math.floor(lonNorm * NS_LON_BINS));
+            if (latDeg >= 0) {
+                nsOccN[id * NS_NUM_LAT * NS_LON_BINS + latIdx * NS_LON_BINS + lonBin] = 1;
+            } else {
+                nsOccS[id * NS_NUM_LAT * NS_LON_BINS + latIdx * NS_LON_BINS + lonBin] = 1;
+            }
+        }
+
+        const nsShaveKm = 250;
+        const latBandKm = NS_LAT_BAND * DEG * 6371; // km per lat band
+
+        for (let r = 0; r < numRegions; r++) {
+            if (zone[r] < ZONE_SC) continue;
+            const latDeg = r_lat[r] / DEG;
+            const absLatDeg = Math.abs(latDeg);
+            if (absLatDeg < 35 || absLatDeg > 70) continue;
+
+            const id = r_label[r];
+            const latIdx = Math.min(NS_NUM_LAT - 1, Math.floor(absLatDeg / NS_LAT_BAND));
+            const bins = latDeg >= 0 ? nsOccN : nsOccS;
+            const lonNorm = (r_lon[r] + Math.PI) / (2 * Math.PI);
+            const lonBin = Math.min(NS_LON_BINS - 1, Math.floor(lonNorm * NS_LON_BINS));
+
+            // Scan equatorward (decreasing absLat): shave near the
+            // equatorward coast at all latitudes in the band.
+            // West-biased spread (-3 to +2) catches diagonal coasts.
+            let equatorBands = 0;
+            for (let li = latIdx - 1; li >= 0; li--) {
+                const rowBase = id * NS_NUM_LAT * NS_LON_BINS + li * NS_LON_BINS;
+                let hasOcean = false;
+                for (let d = -3; d <= 2; d++) {
+                    const lb = (lonBin + d + NS_LON_BINS) % NS_LON_BINS;
+                    if (!bins[rowBase + lb]) { hasOcean = true; break; }
+                }
+                if (hasOcean) break;
+                equatorBands++;
+            }
+            const equatorKm = equatorBands * latBandKm;
+
+            // Scan poleward (increasing absLat): only shave below 60°
+            // where actual N/S coasts exist.  Above 60° the guide says
+            // to shave the equatorward side, not the poleward side.
+            let polewardKm = 9999;
+            if (absLatDeg < 60) {
+                let polewardBands = 0;
+                for (let li = latIdx + 1; li < NS_NUM_LAT; li++) {
+                    const rowBase = id * NS_NUM_LAT * NS_LON_BINS + li * NS_LON_BINS;
+                    let hasOcean = false;
+                    for (let d = -3; d <= 2; d++) {
+                        const lb = (lonBin + d + NS_LON_BINS) % NS_LON_BINS;
+                        if (!bins[rowBase + lb]) { hasOcean = true; break; }
+                    }
+                    if (hasOcean) break;
+                    polewardBands++;
+                }
+                polewardKm = polewardBands * latBandKm;
+            }
+
+            if (equatorKm < nsShaveKm || polewardKm < nsShaveKm) {
+                zone[r] = Math.min(zone[r], ZONE_OC);
+            }
+        }
+    }
+
     // ── Stage B: West coast shave (30-65° latitude) ─────────────────────────
     // For each land cell, scan westward from its longitude bin until hitting
     // an empty (ocean) bin at its latitude band.  The number of bins crossed
@@ -332,7 +490,7 @@ function computeTempContinentality(
     const NUM_LAT_BANDS = Math.ceil(180 / LAT_BAND_DEG);
 
     // Fine-resolution lon bins for the shave (1° each = 360 bins)
-    const SHAVE_LON_BINS = 360;
+    const SHAVE_LON_BINS = 720;
     const bandLonBins = new Uint8Array(numComponents * NUM_LAT_BANDS * SHAVE_LON_BINS);
     for (let r = 0; r < numRegions; r++) {
         if (!r_isLand[r]) continue;
@@ -445,20 +603,96 @@ function computeTempContinentality(
         }
     }
 
-    // ── Stage E: Smooth gradients ───────────────────────────────────────────
+    // ── Remove small zone patches ──────────────────────────────────────────
+    // Small isolated pockets of lower zones (from N/S shave, width check,
+    // etc.) create noisy artifacts.  Flood-fill each contiguous patch of
+    // land cells with the same zone level; if a patch is smaller than a
+    // minimum area, promote it to the most common neighbor zone.
+    {
+        const minPatchKm2 = 500_000; // ~500K km² minimum
+        const minPatchCells = Math.max(5, Math.round(minPatchKm2 / cellAreaKm2));
+        const patchLabel = new Int32Array(numRegions).fill(-1);
+        const patchSizes = [];
+        const patchZone = [];
+        let nextPatch = 0;
+        const pQueue = new Int32Array(numRegions);
 
-    // Gap prevention: ensure no neighbor pair differs by more than one zone step (0.25)
-    // Run twice to propagate fixes
-    for (let pass = 0; pass < 2; pass++) {
         for (let r = 0; r < numRegions; r++) {
-            if (!r_isLand[r]) continue;
-            const end = adjOffset[r + 1];
-            for (let i = adjOffset[r]; i < end; i++) {
-                const nb = adjList[i];
-                if (!r_isLand[nb]) continue;
-                // If this cell is much higher than neighbor, pull it down
-                if (zone[r] - zone[nb] > 0.3) {
-                    zone[r] = zone[nb] + 0.25;
+            if (!r_isLand[r] || patchLabel[r] >= 0) continue;
+            const pid = nextPatch++;
+            const z = zone[r];
+            // Quantize to nearest zone step for comparison
+            const zQ = Math.round(z * 4) / 4;
+            patchZone.push(zQ);
+            patchLabel[r] = pid;
+            let qLen = 1, head = 0;
+            pQueue[0] = r;
+            let size = 0;
+            while (head < qLen) {
+                const cur = pQueue[head++];
+                size++;
+                const end = adjOffset[cur + 1];
+                for (let i = adjOffset[cur]; i < end; i++) {
+                    const nb = adjList[i];
+                    if (!r_isLand[nb] || patchLabel[nb] >= 0) continue;
+                    const nbQ = Math.round(zone[nb] * 4) / 4;
+                    if (nbQ === zQ) {
+                        patchLabel[nb] = pid;
+                        pQueue[qLen++] = nb;
+                    }
+                }
+            }
+            patchSizes.push(size);
+        }
+
+        // For small patches, find the most common neighbor zone and promote
+        for (let pid = 0; pid < nextPatch; pid++) {
+            if (patchSizes[pid] >= minPatchCells) continue;
+            // This is a small patch — find neighbor zones
+            let bestZone = patchZone[pid];
+            const neighborZoneCounts = {};
+            // Scan all cells of this patch to find neighboring zones
+            for (let r = 0; r < numRegions; r++) {
+                if (patchLabel[r] !== pid) continue;
+                const end = adjOffset[r + 1];
+                for (let i = adjOffset[r]; i < end; i++) {
+                    const nb = adjList[i];
+                    if (!r_isLand[nb] || patchLabel[nb] === pid) continue;
+                    const nbZ = Math.round(zone[nb] * 4) / 4;
+                    neighborZoneCounts[nbZ] = (neighborZoneCounts[nbZ] || 0) + 1;
+                }
+            }
+            // Pick the most common neighbor zone
+            let maxCount = 0;
+            for (const [z, count] of Object.entries(neighborZoneCounts)) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    bestZone = parseFloat(z);
+                }
+            }
+            // Promote all cells in this patch
+            for (let r = 0; r < numRegions; r++) {
+                if (patchLabel[r] === pid) zone[r] = bestZone;
+            }
+        }
+    }
+
+    // ── Stage E: Gap prevention + minimum zone width ────────────────────────
+    // Ensure no neighbor pair differs by more than one zone step (0.25).
+    // Run enough passes that each zone gets at least ~100km of buffer
+    // before the next zone appears (scale-invariant pass count).
+    {
+        const bufferPasses = Math.max(3, Math.round(100 / avgEdgeKm));
+        for (let pass = 0; pass < bufferPasses; pass++) {
+            for (let r = 0; r < numRegions; r++) {
+                if (!r_isLand[r]) continue;
+                const end = adjOffset[r + 1];
+                for (let i = adjOffset[r]; i < end; i++) {
+                    const nb = adjList[i];
+                    if (!r_isLand[nb]) continue;
+                    if (zone[r] - zone[nb] > 0.3) {
+                        zone[r] = zone[nb] + 0.25;
+                    }
                 }
             }
         }
@@ -564,11 +798,13 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
 
     // Compute zone-based temperature continentality (Stages A-E)
     const tCont0 = performance.now();
-    const { r_eastX, r_eastY, r_eastZ } = windResult;
+    const { r_eastX, r_eastY, r_eastZ, r_northX, r_northY, r_northZ,
+            r_coastDistLand } = windResult;
     const r_tempCont = computeTempContinentality(
         mesh, r_xyz, r_isLand, r_lat, r_lon,
-        r_eastX, r_eastY, r_eastZ,
+        r_eastX, r_eastY, r_eastZ, r_northX, r_northY, r_northZ,
         oceanResult.r_ocean_warmth_summer,
+        r_coastDistLand,
         avgEdgeKm
     );
     timing.push({ stage: 'Temp: continentality zones', ms: performance.now() - tCont0 });
@@ -673,19 +909,23 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             }
 
             // ── 7. Zone-based seasonal moderation ──
-            // The swing table gives the TOTAL expected half-swing for this
-            // zone and latitude.  The ITCZ shift in step 1 already provides
-            // some seasonal signal, so we subtract that expected ITCZ
-            // contribution and only add the residual continentality boost.
+            // Continentality affects temperature in two ways:
+            //   1. Seasonal swing: continental → bigger swing, oceanic → smaller
+            //   2. Mean temperature offset: ocean thermal inertia warms oceanic
+            //      zones relative to continental ones at the same latitude.
+            //      This isn't symmetric — winters cool more than summers warm
+            //      as you move continental (land loses heat faster than it gains).
+            //
+            // The swing is split 40% summer / 60% winter for continental zones
+            // (winters drop more), and the oceanic warming offset moderates
+            // temperatures year-round for low-continentality cells.
             {
                 const distAnn = Math.abs(lat) / DEG;
 
                 const tc = isLand ? r_tempCont[r] : 0;
                 const tableAmplitude = lookupSwingAmplitude(distAnn, tc);
 
-                // Estimate ITCZ seasonal contribution at this cell:
-                // evaluate the base temp curve for summer and winter ITCZ
-                // positions and take the half-difference.
+                // Estimate ITCZ seasonal contribution
                 const sumItczLat = itczLookupSummer(lon);
                 const winItczLat = itczLookupWinter(lon);
                 const distSummer = Math.abs(lat - sumItczLat) / DEG;
@@ -696,13 +936,21 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 const T_winter = 28 - 47 * Math.pow(tW, 1.4);
                 const itczAmplitude = Math.abs(T_summer - T_winter) / 2;
 
-                // The extra swing continentality adds beyond ITCZ (scaled down
-                // slightly so the effect doesn't dominate other climate signals)
-                const extraAmplitude = Math.max(0, tableAmplitude - itczAmplitude) * 0.7;
+                const extraAmplitude = Math.max(0, tableAmplitude - itczAmplitude) * 0.5;
 
                 const isLocalSummer = (name === 'summer') ? (lat >= 0) : (lat < 0);
                 const seasonSign = isLocalSummer ? 1 : -1;
                 T += seasonSign * extraAmplitude;
+
+                // Oceanic warming offset: ocean thermal inertia keeps oceanic
+                // zones warmer than their latitude alone suggests.  Strongest
+                // at mid-high latitudes, zero in tropics.
+                if (isLand) {
+                    const oceanicFrac = Math.max(0, 1 - tc * 2); // 1 at HO, 0.5 at OC, 0 at SC+
+                    const latFactor = smoothstep(15, 50, distAnn);
+                    const warmingOffset = oceanicFrac * latFactor * 5; // up to 5°C warmer
+                    T += warmingOffset;
+                }
             }
 
             T += temperatureOffset;
