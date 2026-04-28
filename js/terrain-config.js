@@ -151,16 +151,48 @@ export const PHASOR_WARP_OCTAVES = 5;
 export const FOLD_FREQ_MULT_SCALE = 2.0;       // (kept) per-cell freq mult used by stage 5 noise
 
 // ── Basins & Rifts ──
-export const RIFT_HALF_WIDTH_BASE = 4;
-export const RIFT_FLOOR_MULT = 1.5;
-export const RIFT_SHOULDER_MULT = 2.5;
-export const RIFT_AXIS_DEPTH = -0.18;
+// Rift band geometry — each constant times scaleFactor gives a hop count
+// at the 10K-region reference; physically, BASE × ~200 km gives the
+// maximum extent in km.
+//
+//   FLOOR_MULT          → valley graben half-width    (target 50–250 km total valley)
+//   SHOULDER_INNER_MULT → peak shoulder zone width    (extends BEYOND valley edge)
+//   SHOULDER_OUTER_MULT → shoulder fadeout outer edge (extends BEYOND valley edge,
+//                                                     target 200–400 km from valley edge)
+//   HALF_WIDTH_BASE     → BFS bound (= max FLOOR_MULT + max SHOULDER_OUTER_MULT)
+export const RIFT_HALF_WIDTH_BASE = 3.2;
+export const RIFT_FLOOR_MULT = 0.35;
+export const RIFT_SHOULDER_INNER_MULT = 0.5;
+export const RIFT_SHOULDER_OUTER_MULT = 2.75;
+// Per-cell width modulation: low-freq noise pinches/bulges the band along
+// its length. The floor scales aggressively (50–100%, valley swings ~50–150 km
+// total at default detail), the shoulder scales gently (50–100%, so the
+// shoulder mountain extent stays 200–400 km from valley edge). Both share
+// the same noise field so narrower floors correlate with narrower shoulders.
+// Floor uses widthNorm² in elevation.js to bias the valley toward narrow —
+// most sections render as axis-only (~30–50 km total at typical detail),
+// with occasional wider sections up to ~140 km total. Shoulders stay
+// linear so the mountain extent remains consistent on average.
+export const RIFT_FLOOR_VAR_MIN = 0.5;
+export const RIFT_SHOULDER_VAR_MIN = 0.65;
+export const RIFT_WIDTH_VAR_FREQ = 0.5;
+// Per-side width asymmetry: each cell samples noise offset by its plate ID,
+// so cells on opposite walls of the rift get independent width factors —
+// one wall can be wider than the other (footwall vs hanging-wall asymmetry,
+// applies to both valley and shoulder extents). Capped at 1.0 so BFS bound
+// covers max reach.
+export const RIFT_WIDTH_ASYM_MIN = 0.65;
+export const RIFT_WIDTH_ASYM_FREQ = 0.7;
+export const RIFT_AXIS_DEPTH = -0.12;
 export const RIFT_AXIS_VOLCANIC_AMP = 0.06;
-export const RIFT_FLOOR_DEPTH = -0.12;
+export const RIFT_FLOOR_DEPTH = -0.08;
 export const RIFT_FLOOR_TAPER = 0.3;
 export const RIFT_FLOOR_VOLCANIC_AMP = 0.03;
-export const RIFT_SHOULDER_UPLIFT = 0.05;
-export const RIFT_FADEOUT_RESIDUAL = 0.2;
+export const RIFT_SHOULDER_UPLIFT = 0.50;
+export const RIFT_SHOULDER_HEIGHT_VAR_BASE = 0.55;
+export const RIFT_SHOULDER_HEIGHT_VAR_SCALE = 0.55;
+export const RIFT_SHOULDER_HEIGHT_VAR_FREQ = 2.5;
+export const RIFT_FADEOUT_RESIDUAL = 1.0;
 
 export const BASIN_FREQ = 1.8;
 export const BASIN_FACTOR_BIAS = 0.5;

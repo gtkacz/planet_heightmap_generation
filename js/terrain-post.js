@@ -329,17 +329,27 @@ export function warpTerrain(mesh, r_elevation, r_xyz, seed, strength, r_hotspot)
  * Bilateral-weighted Laplacian smoothing.
  * Neighbors with similar elevation receive more weight, preserving ridges
  * and trenches while blending the banded artefacts from BFS distance fields.
- * Coastline cells (land adjacent to ocean) are locked to prevent drift.
+ * Locked cells:
+ *   - Coastline cells (land adjacent to ocean) — preserve coast definition
+ *   - Ocean island cells (ocean plate, positive elevation) — without this,
+ *     volcanic islands / island arcs get averaged against deep-ocean
+ *     neighbors and pulled below sea level. The effect compounds at higher
+ *     detail where islands span more cells but each edge cell pulls the
+ *     island down further every iteration.
  */
 export function smoothElevation(mesh, r_elevation, r_isOcean, iterations, strength) {
     const N = mesh.numRegions;
     const tmp = new Float32Array(N);
     const { adjOffset, adjList } = mesh;
 
-    // Pre-compute coastline lock: land cells adjacent to at least one ocean cell
     const locked = new Uint8Array(N);
     for (let r = 0; r < N; r++) {
-        if (r_isOcean[r]) continue;
+        if (r_isOcean[r]) {
+            // Ocean island — lock so smoothing doesn't drag it underwater.
+            if (r_elevation[r] > 0) locked[r] = 1;
+            continue;
+        }
+        // Land cell — lock if adjacent to ocean (coastline preservation).
         for (let i = adjOffset[r], iEnd = adjOffset[r + 1]; i < iEnd; i++) {
             if (r_isOcean[adjList[i]]) { locked[r] = 1; break; }
         }

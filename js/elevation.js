@@ -45,10 +45,14 @@ import {
     PHASOR_SF_KERNEL_MAX, PHASOR_SF_GATE_FULL, PHASOR_SF_GATE_ZERO,
     PHASOR_DIRECTION_PERP, PHASOR_DIRECTION_SMOOTHING_KM,
     PHASOR_WARP_FREQ, PHASOR_WARP_AMPLITUDE, PHASOR_WARP_OCTAVES,
-    RIFT_HALF_WIDTH_BASE, RIFT_FLOOR_MULT, RIFT_SHOULDER_MULT,
+    RIFT_HALF_WIDTH_BASE, RIFT_FLOOR_MULT,
+    RIFT_SHOULDER_INNER_MULT, RIFT_SHOULDER_OUTER_MULT,
     RIFT_AXIS_DEPTH, RIFT_AXIS_VOLCANIC_AMP,
     RIFT_FLOOR_DEPTH, RIFT_FLOOR_TAPER, RIFT_FLOOR_VOLCANIC_AMP,
     RIFT_SHOULDER_UPLIFT, RIFT_FADEOUT_RESIDUAL,
+    RIFT_SHOULDER_HEIGHT_VAR_BASE, RIFT_SHOULDER_HEIGHT_VAR_SCALE, RIFT_SHOULDER_HEIGHT_VAR_FREQ,
+    RIFT_FLOOR_VAR_MIN, RIFT_SHOULDER_VAR_MIN, RIFT_WIDTH_VAR_FREQ,
+    RIFT_WIDTH_ASYM_MIN, RIFT_WIDTH_ASYM_FREQ,
     BASIN_FREQ, BASIN_FACTOR_BIAS, BASIN_FACTOR_SCALE,
     FORELAND_STRESS_THRESH, FORELAND_WIDTH_FRAC, FORELAND_BASIN_DEPTH, FORELAND_PEAK_POS,
     FORELAND_BASIN_DEEPENING_BASE, FORELAND_BASIN_DEEPENING_SCALE,
@@ -558,9 +562,14 @@ function computeTectonicState(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plat
 //  Stage 2: Spatial fields
 //  All distance fields and BFS bands. Read-only output for stages 3+.
 // ─────────────────────────────────────────────────────────────────────────
-function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed) {
+function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, superPlateData) {
     const { numRegions, adjOffset, adjList } = mesh;
     const { stress_mountain_r, coastline_r, ocean_r, r_boundaryType, r_bothOcean, r_hasOcean, r_subductFactor, r_stress, maxStress, scaleFactor } = tect;
+    // Rift BFS uses super-plate IDs when available so expansion doesn't
+    // stop at internal small-plate boundaries inside the same super plate.
+    // r_boundaryType comes from super plates, so the seeds and the
+    // expansion membership must agree on the same partition.
+    const r_riftPlate = superPlateData ? superPlateData.r_superPlate : r_plate;
 
     const r_isOcean = new Uint8Array(numRegions);
     for (let r = 0; r < numRegions; r++) {
@@ -661,10 +670,10 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed) {
             const r = riftSeeds[qi++];
             const nd = riftDist[r] + 1;
             if (nd > riftHalfWidth) continue;
-            const plate = r_plate[r];
+            const plate = r_riftPlate[r];
             for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
                 const nr = adjList[ni];
-                if (nd < riftDist[nr] && r_plate[nr] === plate && !r_isOcean[nr]) {
+                if (nd < riftDist[nr] && r_riftPlate[nr] === plate && !r_isOcean[nr]) {
                     riftDist[nr] = nd;
                     riftSeeds.push(nr);
                 }
@@ -968,26 +977,64 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
             {
                 const rd = riftDist[r];
                 if (rd !== Infinity) {
-                    const floorEnd = Math.max(1, Math.round(RIFT_FLOOR_MULT * scaleFactor));
-                    const shoulderEnd = Math.max(2, Math.round(RIFT_SHOULDER_MULT * scaleFactor));
-                    let riftEffect = 0;
-                    if (rd <= 0.5) {
-                        riftEffect = RIFT_AXIS_DEPTH;
-                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_AXIS_VOLCANIC_AMP;
-                    } else if (rd <= floorEnd) {
-                        const t = rd / floorEnd;
-                        riftEffect = RIFT_FLOOR_DEPTH * (1 - t * RIFT_FLOOR_TAPER);
-                        riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_FLOOR_VOLCANIC_AMP * (1 - t);
-                    } else if (rd <= shoulderEnd) {
-                        const t = (rd - floorEnd) / (shoulderEnd - floorEnd);
-                        riftEffect = RIFT_SHOULDER_UPLIFT * (1 - t);
-                    } else if (riftHalfWidth > shoulderEnd) {
-                        const t = (rd - shoulderEnd) / (riftHalfWidth - shoulderEnd);
-                        const fadeT = Math.min(1, t);
-                        const fade = fadeT * fadeT * (3 - 2 * fadeT);
-                        riftEffect = RIFT_SHOULDER_UPLIFT * (1 - fade) * RIFT_FADEOUT_RESIDUAL;
+                    // Width modulation along rift length — same noise for both
+                    // walls so the band as a whole pinches/bulges together.
+                    const widthRaw = riftNoise.fbm(
+                        x * RIFT_WIDTH_VAR_FREQ + 91.3,
+                        y * RIFT_WIDTH_VAR_FREQ + 17.6,
+                        z * RIFT_WIDTH_VAR_FREQ + 64.2, 2);
+                    const widthNorm = Math.max(0, Math.min(1, 0.5 + widthRaw));
+                    // Floor biases toward narrow: widthNorm² makes most
+                    // cells sample low values, so the typical valley is
+                    // axis-only with occasional wider sections.
+                    const floorScale = RIFT_FLOOR_VAR_MIN + (1 - RIFT_FLOOR_VAR_MIN) * widthNorm * widthNorm;
+                    const shoulderScale = RIFT_SHOULDER_VAR_MIN + (1 - RIFT_SHOULDER_VAR_MIN) * widthNorm;
+
+                    // Per-side width asymmetry — sample noise offset by plate
+                    // ID so cells on opposite walls of the rift get
+                    // independent width factors. Within one plate, neighbors
+                    // sample similar values so the asymmetry varies smoothly
+                    // along rift length.
+                    const plateOffset = (r_plate[r] * 0.6180339887) % 1 * 100;
+                    const asymRaw = riftNoise.fbm(
+                        x * RIFT_WIDTH_ASYM_FREQ + plateOffset,
+                        y * RIFT_WIDTH_ASYM_FREQ + plateOffset * 1.7,
+                        z * RIFT_WIDTH_ASYM_FREQ + plateOffset * 0.3, 2);
+                    const asymNorm = Math.max(0, Math.min(1, 0.5 + asymRaw));
+                    const widthAsym = RIFT_WIDTH_ASYM_MIN + (1 - RIFT_WIDTH_ASYM_MIN) * asymNorm;
+
+                    // Floor zone: rd in [0, floorEnd]. Shoulders extend BEYOND
+                    // the valley edge — inner/outer offsets stack on top of
+                    // floorEnd so shoulder extent is from the valley wall,
+                    // not from rift center.
+                    const floorEnd = RIFT_FLOOR_MULT * scaleFactor * floorScale * widthAsym;
+                    const shoulderEnd = floorEnd + RIFT_SHOULDER_INNER_MULT * scaleFactor * shoulderScale * widthAsym;
+                    const localHalfWidth = floorEnd + RIFT_SHOULDER_OUTER_MULT * scaleFactor * shoulderScale * widthAsym;
+
+                    if (rd <= localHalfWidth + 0.5) {
+                        const shoulderHeightNoise = RIFT_SHOULDER_HEIGHT_VAR_BASE
+                            + RIFT_SHOULDER_HEIGHT_VAR_SCALE * foldNoise.fbm(
+                                x * RIFT_SHOULDER_HEIGHT_VAR_FREQ + 41.7,
+                                y * RIFT_SHOULDER_HEIGHT_VAR_FREQ + 53.1,
+                                z * RIFT_SHOULDER_HEIGHT_VAR_FREQ + 27.4, 2);
+                        let riftEffect = 0;
+                        if (rd <= 0.5) {
+                            riftEffect = RIFT_AXIS_DEPTH;
+                            riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_AXIS_VOLCANIC_AMP;
+                        } else if (rd <= floorEnd) {
+                            const t = floorEnd > 0 ? rd / floorEnd : 1;
+                            riftEffect = RIFT_FLOOR_DEPTH * (1 - t * RIFT_FLOOR_TAPER);
+                            riftEffect += riftNoise.ridgedFbm(x * 8, y * 8, z * 8, 3) * RIFT_FLOOR_VOLCANIC_AMP * (1 - t);
+                        } else if (rd <= shoulderEnd) {
+                            riftEffect = RIFT_SHOULDER_UPLIFT * shoulderHeightNoise;
+                        } else if (localHalfWidth > shoulderEnd) {
+                            const t = (rd - shoulderEnd) / (localHalfWidth - shoulderEnd);
+                            const fadeT = Math.min(1, Math.max(0, t));
+                            const fade = fadeT * fadeT * (3 - 2 * fadeT);
+                            riftEffect = RIFT_SHOULDER_UPLIFT * (1 - fade) * RIFT_FADEOUT_RESIDUAL * shoulderHeightNoise;
+                        }
+                        r_elevation[r] += riftEffect;
                     }
-                    r_elevation[r] += riftEffect;
                 }
             }
 
@@ -1086,11 +1133,21 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
                 }
             }
 
-            // Soft interior floor
+            // Soft interior floor — skipped inside the rift graben (axis +
+            // floor) so the valley depression survives. Shoulders and the
+            // fadeout band remain subject to the floor since they're meant
+            // to sit above plateau level anyway. Uses the BASE floor extent
+            // (not width-modulated) so even pinched sections still expose
+            // their depression — width modulation only narrows the shoulders.
             {
-                const floorRamp = Math.min(1, lcd / (5 * scaleFactor));
-                const minElev = INTERIOR_FLOOR * floorRamp;
-                if (r_elevation[r] < minElev) r_elevation[r] = minElev;
+                const rd = riftDist[r];
+                const inRiftFloor = rd !== Infinity &&
+                    rd <= RIFT_FLOOR_MULT * scaleFactor + 0.5;
+                if (!inRiftFloor) {
+                    const floorRamp = Math.min(1, lcd / (5 * scaleFactor));
+                    const minElev = INTERIOR_FLOOR * floorRamp;
+                    if (r_elevation[r] < minElev) r_elevation[r] = minElev;
+                }
             }
         } else {
             // ───── OCEAN ─────
@@ -2485,7 +2542,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     _timing.push({ stage: '1. Tectonic state', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Stage 2
-    const sf = computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed);
+    const sf = computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, superPlateData);
     _timing.push({ stage: '2. Spatial fields', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Stage 3
