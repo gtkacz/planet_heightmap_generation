@@ -5,33 +5,45 @@
 /**
  * Build super plate assignments from individual plates.
  *
- * @param {Object}      mesh          Sphere mesh (adjOffset, adjList, numRegions)
- * @param {Int32Array}  r_plate       Region → plate seed ID
- * @param {Set}         plateSeeds    Set of all plate seed IDs
- * @param {Object}      plateVec      plate seed → { pole: [x,y,z], omega }
- * @param {Set}         plateIsOcean  Set of ocean plate seed IDs
- * @param {Object}      plateDensity  plate seed → density value
+ * The plate adjacency graph, plate areas, connected-components, and
+ * Dijkstra splits are all derived from the COARSE mesh (always ~20K
+ * regions, detail-independent). This is critical for stability across
+ * the Detail slider — when adjacency was built from the hi-res mesh,
+ * two plates that touched along only a thin seam might not appear
+ * adjacent at low detail but would at high detail, changing the
+ * resulting super plates entirely.
+ *
+ * The hi-res r_plate is used only at the very end to project the
+ * plate→superPlate mapping onto the hi-res region array.
+ *
+ * @param {Object}      coarseMesh        Coarse sphere mesh (adjOffset, adjList, numRegions)
+ * @param {Int32Array}  coarse_r_plate    Coarse region → plate seed ID
+ * @param {Set}         plateSeeds        Set of all plate seed IDs
+ * @param {Object}      plateVec          plate seed → { pole: [x,y,z], omega }
+ * @param {Set}         plateIsOcean      Set of ocean plate seed IDs
+ * @param {Object}      plateDensity      plate seed → density value
+ * @param {Int32Array}  hiResRPlate       Hi-res region → plate seed ID (for r_superPlate output)
  * @returns {{ r_superPlate, superPlateVec, superPlateIsOcean, superPlateDensity, numSuperPlates }}
  */
-export function buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity) {
-    const { numRegions, adjOffset, adjList } = mesh;
+export function buildSuperPlates(coarseMesh, coarse_r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity, hiResRPlate) {
+    const { numRegions: coarseNumRegions, adjOffset, adjList } = coarseMesh;
     const numPlates = plateSeeds.size;
 
-    // 1. Count regions per plate (plate areas)
+    // 1. Count COARSE regions per plate (plate areas, detail-independent)
     const plateArea = {};
     for (const pid of plateSeeds) plateArea[pid] = 0;
-    for (let r = 0; r < numRegions; r++) {
-        plateArea[r_plate[r]]++;
+    for (let r = 0; r < coarseNumRegions; r++) {
+        plateArea[coarse_r_plate[r]]++;
     }
 
-    // 2. Build plate adjacency graph
+    // 2. Build plate adjacency graph from COARSE mesh
     // plateNeighbors: pid → Set of neighbor plate IDs
     const plateNeighbors = {};
     for (const pid of plateSeeds) plateNeighbors[pid] = new Set();
-    for (let r = 0; r < numRegions; r++) {
-        const myPlate = r_plate[r];
+    for (let r = 0; r < coarseNumRegions; r++) {
+        const myPlate = coarse_r_plate[r];
         for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
-            const nbPlate = r_plate[adjList[ni]];
+            const nbPlate = coarse_r_plate[adjList[ni]];
             if (nbPlate !== myPlate) {
                 plateNeighbors[myPlate].add(nbPlate);
             }
@@ -173,10 +185,12 @@ export function buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOce
 
     const numSuperPlates = nextSuperPlate;
 
-    // 5. Build r_superPlate: region → super plate ID
-    const r_superPlate = new Int32Array(numRegions);
-    for (let r = 0; r < numRegions; r++) {
-        r_superPlate[r] = plateToSuperPlate[r_plate[r]];
+    // 5. Build r_superPlate: HI-RES region → super plate ID via the
+    //    detail-independent plate→superPlate mapping computed above.
+    const hiResNumRegions = hiResRPlate.length;
+    const r_superPlate = new Int32Array(hiResNumRegions);
+    for (let r = 0; r < hiResNumRegions; r++) {
+        r_superPlate[r] = plateToSuperPlate[hiResRPlate[r]];
     }
 
     // 6. Compute super plate Euler poles (area-weighted)

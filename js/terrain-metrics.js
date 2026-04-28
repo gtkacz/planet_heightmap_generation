@@ -773,14 +773,14 @@ function backArcFoldPresence(ctx) {
         result.back_arc_mean_magnitude = nonzero > 0 ? +(sum / nonzero).toFixed(5) : 0;
     }
 
-    if (debugLayers && debugLayers.foldRidge) {
-        const fr = debugLayers.foldRidge;
+    if (debugLayers && debugLayers.phasorRidge) {
+        const fr = debugLayers.phasorRidge;
         let nonzero = 0, sum = 0;
         for (let i = 0; i < fr.length; i++) {
             if (fr[i] !== 0) { nonzero++; sum += Math.abs(fr[i]); }
         }
-        result.fold_ridge_active_cells = nonzero;
-        result.fold_ridge_mean_magnitude = nonzero > 0 ? +(sum / nonzero).toFixed(5) : 0;
+        result.phasor_ridge_active_cells = nonzero;
+        result.phasor_ridge_mean_magnitude = nonzero > 0 ? +(sum / nonzero).toFixed(5) : 0;
     }
 
     return result;

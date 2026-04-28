@@ -217,7 +217,7 @@ function handleGenerate(data) {
         let superPlateData = null;
         if (P >= 8) {
             t0 = performance.now();
-            superPlateData = buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity);
+            superPlateData = buildSuperPlates(coarseMesh, coarse_r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity, r_plate);
             timing.push({ stage: `Super plates (${superPlateData.numSuperPlates} groups from ${P} plates)`, ms: performance.now() - t0 });
 
             // Apply plate physics to super plates with stronger blending
@@ -339,7 +339,10 @@ function handleGenerate(data) {
             mountain_r: new Set(mountain_r), coastline_r: new Set(coastline_r), ocean_r: new Set(ocean_r),
             r_stress: new Float32Array(r_stress),
             temperatureOffset, precipitationOffset, landCoverage,
-            cachedWind: windResult, cachedOcean: oceanResult
+            cachedWind: windResult, cachedOcean: oceanResult,
+            // Retain coarse-plate data so editRecompute can rebuild super
+            // plates with the same detail-independent adjacency graph.
+            coarseMesh, coarse_r_plate: new Int32Array(coarse_r_plate)
         };
         timing.push({ stage: 'Clone state for retention', ms: performance.now() - t0 });
 
@@ -529,9 +532,10 @@ function handleEditRecompute(data) {
         const spread = 5;
 
         // Rebuild super plates from updated plate ocean/density state
+        // (uses retained coarse-plate data for detail-stable adjacency graph)
         let superPlateData = null;
         if ((W.P || 0) >= 8) {
-            superPlateData = buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, W.plateDensity);
+            superPlateData = buildSuperPlates(W.coarseMesh, W.coarse_r_plate, plateSeeds, plateVec, plateIsOcean, W.plateDensity, r_plate);
         }
 
         let t0 = performance.now();
