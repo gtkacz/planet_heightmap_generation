@@ -530,6 +530,23 @@ export const PLATE_SMOOTH_LOW_T = 2;
 export const PLATE_SMOOTH_FIRST_THRESH = 0.4;
 export const PLATE_SMOOTH_LATER_THRESH = 0.5;
 
+// ── Detail Noise (post-processing) ──
+// Final pass that adds 0–DETAIL_NOISE_AMP_KM of domain-warped FBM bumps to
+// land cells, breaking up the visually-flat continental interiors that
+// emerge from the elev→km quartic compression. Frequencies are in
+// unit-sphere coordinates (Earth radius ≈ 1) so the result is scale-
+// invariant. Bumps only — no depressions — so coastlines never sink.
+export const DETAIL_NOISE_AMP_KM = 0.10;        // 100 m peak bump height
+export const DETAIL_NOISE_FREQ = 5.0;           // ~1280 km base wavelength
+export const DETAIL_NOISE_OCTAVES = 6;          // → finest features ~40 km
+export const DETAIL_NOISE_WARP_FREQ = 3.0;      // ~2100 km warp wavelength
+export const DETAIL_NOISE_WARP_AMP = 0.08;      // ~510 km displacement
+export const DETAIL_NOISE_WARP_OCTAVES = 3;
+// Slight dampening of detail-noise amplitude over geologically quiet
+// regions (cratons, basins) to preserve their characteristic flatness
+// without erasing the variety entirely.
+export const DETAIL_NOISE_DAMPEN_STRENGTH = 0.5; // 50% reduction at full craton/basin weight
+
 // ── Coarse Projection ──
 export const N_COARSE = 20000;
 export const COARSE_JITTER = 0.75;

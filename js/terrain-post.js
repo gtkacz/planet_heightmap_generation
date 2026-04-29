@@ -19,6 +19,9 @@ import {
     HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY,
     THERMAL_TRANSFER_FRAC,
     RIDGE_SHARPEN_CAP, VALLEY_DEEPEN_FACTOR, VALLEY_FLOOR_FRAC, VALLEY_FLOOR_MIN,
+    DETAIL_NOISE_AMP_KM, DETAIL_NOISE_FREQ, DETAIL_NOISE_OCTAVES,
+    DETAIL_NOISE_WARP_FREQ, DETAIL_NOISE_WARP_AMP, DETAIL_NOISE_WARP_OCTAVES,
+    DETAIL_NOISE_DAMPEN_STRENGTH,
 } from './terrain-config.js';
 
 /**
@@ -804,6 +807,110 @@ export function sharpenRidges(mesh, r_elevation, r_isOcean, iterations, strength
             }
         }
         for (let li = 0; li < landCount; li++) r_elevation[landCells[li]] = tmp[landCells[li]];
+    }
+}
+
+/**
+ * Detail noise — adds domain-warped FBM bumps to every land cell to break
+ * up visually-flat continental interiors (where the elev→km quartic
+ * compresses small elev differences to near-zero physical relief).
+ *
+ * Two modes via opts:
+ *   - Default (unipolar): output remapped to [0, amplitudeKm] km. Bumps
+ *     only, no pits — safe near coastlines.
+ *   - Bipolar (opts.bipolar=true): output mapped to [-amp, +amp] km, with
+ *     `biasExponent` < 1 pushing values toward the extremes (so most
+ *     cells receive a near-full-amplitude bump or pit, fewer sit at zero).
+ *     kmTarget is clamped to a small positive so dips don't sink land.
+ *
+ * Works in km space because the elev→km mapping is highly nonlinear:
+ * a uniform elev offset would map to wildly different km amounts at
+ * different elevations. After computing deltaKm we invert the quartic
+ * km(t) = 6t⁴(5−4t) via Newton-Raphson to get back to elev.
+ */
+export function applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, opts = {}) {
+    const amplitudeKm = opts.amplitudeKm ?? DETAIL_NOISE_AMP_KM;
+    const frequencyMult = opts.frequencyMult ?? 1.0;
+    const warpAmpMult = opts.warpAmpMult ?? 1.0;
+    const bipolar = opts.bipolar ?? false;
+    const biasExponent = opts.biasExponent ?? 1.0;
+    const seedOffset = opts.seedOffset ?? 31337;
+    // Optional per-cell dampening: dampenField[r] in [0,1], 1 = max dampen.
+    // The noise amplitude at cell r is scaled by (1 - dampenStrength * dampenField[r]).
+    const dampenField = opts.dampenField ?? null;
+    const dampenStrength = opts.dampenStrength ?? 0;
+    const useDampen = dampenField !== null && dampenStrength > 0;
+    // Optional per-cell amplitude multiplier: amplitudeField[r] in [0,1].
+    // Applied as a direct factor on top of any dampening — used for the
+    // orogenic-power coupling so noise tracks active mountain-building zones.
+    const amplitudeField = opts.amplitudeField ?? null;
+
+    const N = mesh.numRegions;
+    const noise = new SimplexNoise(seed + seedOffset);
+    const wf = DETAIL_NOISE_WARP_FREQ * frequencyMult;
+    const wa = DETAIL_NOISE_WARP_AMP * warpAmpMult;
+    const wo = DETAIL_NOISE_WARP_OCTAVES;
+    const df = DETAIL_NOISE_FREQ * frequencyMult;
+    const doct = DETAIL_NOISE_OCTAVES;
+
+    for (let r = 0; r < N; r++) {
+        if (r_isOcean[r]) continue;
+        const elev = r_elevation[r];
+        // Skip cells outside the quartic's well-defined domain. Above
+        // elev≈1 the formula 6t⁴(5−4t) goes negative, producing NaN
+        // through Math.pow(negative, 0.25) and corrupting downstream
+        // erosion via NaN propagation. Mountain peaks already have
+        // plenty of relief — no visible loss from skipping them.
+        if (elev <= 0 || elev >= 0.99) continue;
+
+        const px = r_xyz[3 * r], py = r_xyz[3 * r + 1], pz = r_xyz[3 * r + 2];
+
+        // Domain warp: perturb the position by FBM in each axis
+        const dx = noise.fbm(px * wf + 1.7, py * wf + 9.2, pz * wf + 4.5, wo) * wa;
+        const dy = noise.fbm(px * wf - 5.1, py * wf + 2.8, pz * wf - 7.3, wo) * wa;
+        const dz = noise.fbm(px * wf + 6.6, py * wf - 8.4, pz * wf + 3.1, wo) * wa;
+
+        let n = noise.fbm((px + dx) * df, (py + dy) * df, (pz + dz) * df, doct);
+        if (n < -1) n = -1; else if (n > 1) n = 1;
+
+        let mapped;
+        if (bipolar) {
+            // Preserve sign, expand magnitude with |n|^bias (bias<1 → toward ±1)
+            const absN = n < 0 ? -n : n;
+            mapped = (n < 0 ? -1 : 1) * Math.pow(absN, biasExponent);
+        } else {
+            // Remap [-1, 1] → [0, 1] (positive bumps only)
+            mapped = n * 0.5 + 0.5;
+            if (mapped < 0) mapped = 0;
+        }
+
+        let deltaKm = mapped * amplitudeKm;
+        if (useDampen) deltaKm *= 1 - dampenStrength * dampenField[r];
+        if (amplitudeField) deltaKm *= amplitudeField[r];
+        if (deltaKm > -1e-9 && deltaKm < 1e-9) continue;
+
+        // km(t) = 6t⁴(5−4t); invert km0 + deltaKm via Newton-Raphson.
+        // Clamp kmTarget at a tiny positive so bipolar dips can't push
+        // land below sea level. At low elev the derivative is ~0, so
+        // seed with the small-t approximation (km ≈ 30t⁴ → t ≈ (km/30)^¼).
+        const t02 = elev * elev, t04 = t02 * t02;
+        const km0 = 6 * t04 * (5 - 4 * elev);
+        const kmTarget = Math.max(1e-4, km0 + deltaKm);
+
+        let t = Math.max(elev, Math.pow(kmTarget / 30, 0.25));
+        if (t > 0.999) t = 0.999;
+        for (let i = 0; i < 5; i++) {
+            const t2 = t * t, t3 = t2 * t, t4 = t3 * t;
+            const f = 6 * t4 * (5 - 4 * t) - kmTarget;
+            const fp = 120 * t3 * (1 - t);
+            if (fp < 1e-6) break;
+            const dt = f / fp;
+            t -= dt;
+            if (t < 1e-4) t = 1e-4;
+            else if (t > 0.9999) t = 0.9999;
+            if (Math.abs(dt) < 1e-6) break;
+        }
+        r_elevation[r] = t;
     }
 }
 
