@@ -1,6 +1,7 @@
 // Wind simulation: pressure-driven seasonal wind with longitude-varying ITCZ.
 // Computes pressure fields and wind vectors for summer and winter seasons.
 
+import { CLIMATE } from './climate-config.js';
 import { elevToHeightKm } from './color-map.js';
 import { smoothField, percentile } from './climate-util.js';
 
@@ -310,7 +311,7 @@ function computeITCZ(geoIndex, season, tiltRad) {
             // At 5° radius (~560 km), ocean near thin islands stays well below this.
             const landGate = smoothstep(0.25, 0.55, localLand);
             // Strong max boost so massive continents pull ITCZ toward 25-30°
-            const landBoost = landGate * scaledLand * 1.0;
+            const landBoost = landGate * scaledLand * CLIMATE.WIND_ITCZ_LAND_BOOST_MAX;
 
             // (c) Elevation boost: high plateaus heat more intensely
             // (thinner atmosphere, stronger surface insolation).
@@ -322,7 +323,7 @@ function computeITCZ(geoIndex, season, tiltRad) {
             // winter hemisphere but there's significant land, it anchors
             // the ITCZ closer to the equator (resists poleward migration).
             const isWinterHemi = (sign > 0 && latDeg < 0) || (sign < 0 && latDeg > 0);
-            const anchorBoost = isWinterHemi ? landBoost * 0.4 : 0;
+            const anchorBoost = isWinterHemi ? landBoost * CLIMATE.WIND_ITCZ_ANCHOR_FACTOR : 0;
 
             // (e) Ocean baseline: slight poleward bias in summer hemisphere
             // even over open ocean (~6-8° from equator on average).
@@ -372,7 +373,7 @@ function computeITCZ(geoIndex, season, tiltRad) {
 
     // Clamp to ±30° (ITCZ never migrates beyond the tropics)
     for (let i = 0; i < NUM_LON; i++) {
-        lats[i] = Math.max(-30 * DEG, Math.min(30 * DEG, lats[i]));
+        lats[i] = Math.max(-CLIMATE.WIND_ITCZ_CLAMP_DEG * DEG, Math.min(CLIMATE.WIND_ITCZ_CLAMP_DEG * DEG, lats[i]));
     }
 
     const spline = buildPeriodicSpline(lons, lats);
@@ -393,23 +394,23 @@ function regionPressure(lat, lon, itczSpline, season, landFrac, elevation, noise
 
     // (a) ITCZ low — follows thermal equator
     const dItcz = (lat - itczLat) * RAD; // degrees from ITCZ
-    p -= 15 * Math.exp(-0.5 * (dItcz / 8) ** 2);
+    p -= CLIMATE.WIND_ITCZ_LOW_DEPTH_HPA * Math.exp(-0.5 * (dItcz / CLIMATE.WIND_ITCZ_LOW_WIDTH_DEG) ** 2);
 
     // (b) Subtropical highs — shift with season, weaker over hot land
-    const shiftDeg = seasonSign * 5;
-    const nhSubHigh = 30 + shiftDeg;
-    const shSubHigh = -(30 - shiftDeg);
-    const highIntensity = 12 * (1 - 0.3 * landFrac);
-    p += highIntensity * Math.exp(-0.5 * ((latDeg - nhSubHigh) / 10) ** 2);
-    p += highIntensity * Math.exp(-0.5 * ((latDeg - shSubHigh) / 10) ** 2);
+    const shiftDeg = seasonSign * CLIMATE.WIND_SUBTROP_SEASONAL_SHIFT_DEG;
+    const nhSubHigh = CLIMATE.WIND_SUBTROP_HIGH_LAT_DEG + shiftDeg;
+    const shSubHigh = -(CLIMATE.WIND_SUBTROP_HIGH_LAT_DEG - shiftDeg);
+    const highIntensity = CLIMATE.WIND_SUBTROP_HIGH_STRENGTH_HPA * (1 - CLIMATE.WIND_SUBTROP_LAND_WEAKENING * landFrac);
+    p += highIntensity * Math.exp(-0.5 * ((latDeg - nhSubHigh) / CLIMATE.WIND_SUBTROP_HIGH_WIDTH_DEG) ** 2);
+    p += highIntensity * Math.exp(-0.5 * ((latDeg - shSubHigh) / CLIMATE.WIND_SUBTROP_HIGH_WIDTH_DEG) ** 2);
 
     // (c) Subpolar lows
-    p -= 10 * Math.exp(-0.5 * ((latDeg - 60) / 10) ** 2);
-    p -= 10 * Math.exp(-0.5 * ((latDeg + 60) / 10) ** 2);
+    p -= CLIMATE.WIND_SUBPOLAR_LOW_DEPTH_HPA * Math.exp(-0.5 * ((latDeg - CLIMATE.WIND_SUBPOLAR_LOW_LAT_DEG) / CLIMATE.WIND_SUBPOLAR_LOW_WIDTH_DEG) ** 2);
+    p -= CLIMATE.WIND_SUBPOLAR_LOW_DEPTH_HPA * Math.exp(-0.5 * ((latDeg + CLIMATE.WIND_SUBPOLAR_LOW_LAT_DEG) / CLIMATE.WIND_SUBPOLAR_LOW_WIDTH_DEG) ** 2);
 
     // (d) Polar highs
-    p += 8 * Math.exp(-0.5 * ((latDeg - 85) / 8) ** 2);
-    p += 8 * Math.exp(-0.5 * ((latDeg + 85) / 8) ** 2);
+    p += CLIMATE.WIND_POLAR_HIGH_STRENGTH_HPA * Math.exp(-0.5 * ((latDeg - 85) / 8) ** 2);
+    p += CLIMATE.WIND_POLAR_HIGH_STRENGTH_HPA * Math.exp(-0.5 * ((latDeg + 85) / 8) ** 2);
 
     // (e) Land/sea thermal modifier
     // landFrac here is actually continentality (0 at coast → ~1 deep interior).
@@ -429,10 +430,10 @@ function regionPressure(lat, lon, itczSpline, season, landFrac, elevation, noise
         const isSummerHemisphere = (seasonSign > 0 && lat > 0) || (seasonSign < 0 && lat < 0);
         if (isSummerHemisphere) {
             // Thermal low over hot continent
-            p -= 10 * latFactor * continentalScale;
+            p -= CLIMATE.WIND_SUMMER_THERMAL_LOW_HPA * latFactor * continentalScale;
         } else {
             // Thermal high over cold continent (stronger — Siberian/Canadian highs)
-            p += 14 * latFactor * continentalScale;
+            p += CLIMATE.WIND_WINTER_THERMAL_HIGH_HPA * latFactor * continentalScale;
         }
     }
 
@@ -501,10 +502,10 @@ function pressureToWind(r_gradE, r_gradN, r_sinLat,
         const absSinLat = Math.abs(sinLat);
 
         // Geostrophic deflection: 0° at equator → 70° at ≥5° latitude
-        const geoAngle = 70 * DEG * smoothstep(0, sin5, absSinLat);
+        const geoAngle = CLIMATE.WIND_GEOSTROPHIC_MAX_ANGLE_DEG * DEG * smoothstep(0, sin5, absSinLat);
 
         // Surface friction turns wind 20° back toward low pressure
-        const frictionAngle = 20 * DEG;
+        const frictionAngle = CLIMATE.WIND_FRICTION_BACK_ANGLE_DEG * DEG;
 
         // Net rotation: NH = clockwise (negative), SH = counterclockwise (positive)
         // The rotation matrix [cosθ,-sinθ; sinθ,cosθ] is counterclockwise for +θ,
@@ -686,7 +687,7 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     }
 
     // Map BFS distance to continentality [0, 1]
-    const CONT_RANGE_KM = 2000; // distance at which cont reaches ~1.0
+    const CONT_RANGE_KM = CLIMATE.WIND_CONT_RANGE_KM; // distance at which cont reaches ~1.0
     const r_continentality = new Float32Array(numRegions);
     for (let r = 0; r < numRegions; r++) {
         if (r_isLand[r] && r_coastDist[r] >= 0) {
@@ -700,6 +701,64 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     // bleed a small thermal signal onto nearshore ocean cells.
     const contSmoothPasses = Math.max(1, Math.round(100 / avgEdgeKm));
     smoothField(mesh, r_continentality, contSmoothPasses);
+
+    // ── West/east coast field (r_westness ∈ [−1, +1]) ──
+    // +1 near a WEST coast (ocean lies to the west, e.g. Europe, US Pacific NW),
+    // −1 near an EAST coast (ocean to the east, e.g. E. China, US SE), ~0 deep
+    // interior. Two land-BFS passes from west- and east-facing coast seeds; the
+    // signed normalized difference penetrates inland smoothly. This is the
+    // primitive Earth's subtropical asymmetry needs — dry subsidence over west
+    // coasts, moist onshore flow over east coasts — that latitude alone can't see.
+    const r_westness = new Float32Array(numRegions);
+    {
+        const distWest = new Int32Array(numRegions).fill(-1);
+        const distEast = new Int32Array(numRegions).fill(-1);
+        const qW = [], qE = [];
+        for (let r = 0; r < numRegions; r++) {
+            if (!r_isLand[r] || r_coastDist[r] !== 0) continue; // coastal land only
+            // Mean direction to adjacent main-ocean cells, projected on east tangent.
+            const lon = r_lon[r];
+            const eX = Math.cos(lon), eZ = -Math.sin(lon); // east tangent (pole axis = Y)
+            let ox = 0, oy = 0, oz = 0, on = 0;
+            const end = adjOffset[r + 1];
+            for (let ni = adjOffset[r]; ni < end; ni++) {
+                const nb = adjList[ni];
+                if (!r_isLand[nb] && r_oceanLabel[nb] === mainOceanLabel) {
+                    ox += r_xyz[3 * nb] - r_xyz[3 * r];
+                    oz += r_xyz[3 * nb + 2] - r_xyz[3 * r + 2];
+                    on++;
+                }
+            }
+            if (on === 0) continue;
+            const oceanDotEast = ox * eX + oz * eZ;
+            if (oceanDotEast < 0) { distWest[r] = 0; qW.push(r); } // ocean to west → west coast
+            else { distEast[r] = 0; qE.push(r); }                  // ocean to east → east coast
+        }
+        const bfsLand = (dist, q) => {
+            let head = 0;
+            while (head < q.length) {
+                const r = q[head++];
+                const d = dist[r] + 1;
+                const end = adjOffset[r + 1];
+                for (let ni = adjOffset[r]; ni < end; ni++) {
+                    const nb = adjList[ni];
+                    if (r_isLand[nb] && dist[nb] === -1) { dist[nb] = d; q.push(nb); }
+                }
+            }
+        };
+        bfsLand(distWest, qW);
+        bfsLand(distEast, qE);
+        for (let r = 0; r < numRegions; r++) {
+            if (!r_isLand[r]) continue;
+            const dw = distWest[r], de = distEast[r];
+            if (dw < 0 && de < 0) continue;
+            if (dw < 0) { r_westness[r] = -1; continue; } // only east coast reachable
+            if (de < 0) { r_westness[r] = 1; continue; }  // only west coast reachable
+            r_westness[r] = (de - dw) / (de + dw + 1e-6);
+        }
+        const wnSmooth = Math.max(1, Math.round(150 / avgEdgeKm));
+        smoothField(mesh, r_westness, wnSmooth);
+    }
 
     // Plate-based continentality: uses plate type (continental vs oceanic)
     // instead of actual land/ocean. Same BFS approach for wide gradient.
@@ -822,6 +881,7 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     result.r_isLand = r_isLand;
     result.r_continentality = r_continentality;
     result.r_coastDistLand = r_coastDist;
+    result.r_westness = r_westness;
     result.r_plateContinentality = r_plateContinentality;
     result.r_eastX = r_eastX;
     result.r_eastY = r_eastY;

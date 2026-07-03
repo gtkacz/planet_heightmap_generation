@@ -4,6 +4,7 @@
 // (distance from ITCZ), seasonal modifier, continental dryness, and
 // orographic rain shadow.
 
+import { CLIMATE } from './climate-config.js';
 import { smoothstep } from './wind.js';
 import { elevToHeightKm } from './color-map.js';
 import { smoothField, makeItczLookup } from './climate-util.js';
@@ -14,25 +15,34 @@ const DEG = Math.PI / 180;
 // Returns a value in [0.03, 1.0] based on distance from the ITCZ in degrees.
 
 function zonalBase(distDeg) {
+    const tradeValue = CLIMATE.HEUR_ZONAL_TRADE_VALUE;
+    const desertMin = CLIMATE.HEUR_ZONAL_DESERT_MIN;
+    const desertEndDeg = CLIMATE.HEUR_ZONAL_DESERT_END_DEG;
+    const dryPolewardDeg = CLIMATE.HEUR_ZONAL_DRY_POLEWARD_DEG;
+    const westerlyPeak = CLIMATE.HEUR_ZONAL_WESTERLY_PEAK;
+    const westerlyPeakDeg = CLIMATE.HEUR_ZONAL_WESTERLY_PEAK_DEG;
+    const polarMin = CLIMATE.HEUR_ZONAL_POLAR_MIN;
+    const subpolarValue = westerlyPeak - 0.2; // value at 70° (0.3 at defaults)
+
     if (distDeg < 5) {
         // ITCZ core: 1.0
         return 1.0;
     } else if (distDeg < 10) {
         // Outer ITCZ / trades: 1.0 → 0.35 (faster falloff)
-        return 1.0 - 0.65 * smoothstep(5, 10, distDeg);
-    } else if (distDeg < 33) {
+        return 1.0 - (1.0 - tradeValue) * smoothstep(5, 10, distDeg);
+    } else if (distDeg < dryPolewardDeg) {
         // Subtropical highs (desert factory): 0.35 → 0.02
         // Very aggressive minimum — core of the desert belt.
-        return 0.35 - 0.33 * smoothstep(10, 28, distDeg);
-    } else if (distDeg < 55) {
+        return tradeValue - (tradeValue - desertMin) * smoothstep(10, desertEndDeg, distDeg);
+    } else if (distDeg < westerlyPeakDeg) {
         // Mid-lat westerlies recovery: 0.02 → 0.5
-        return 0.02 + 0.48 * smoothstep(33, 55, distDeg);
+        return desertMin + (westerlyPeak - desertMin) * smoothstep(dryPolewardDeg, westerlyPeakDeg, distDeg);
     } else if (distDeg < 70) {
         // Subpolar: 0.5 → 0.3
-        return 0.5 - 0.2 * smoothstep(55, 70, distDeg);
+        return westerlyPeak - 0.2 * smoothstep(westerlyPeakDeg, 70, distDeg);
     } else {
         // Polar: 0.3 → 0.1
-        return 0.3 - 0.2 * smoothstep(70, 90, distDeg);
+        return subpolarValue - (subpolarValue - polarMin) * smoothstep(70, 90, distDeg);
     }
 }
 
@@ -89,7 +99,7 @@ export function computeHeuristicWindField(numRegions, r_lat, r_lon, itczLookup) 
 
     for (let r = 0; r < numRegions; r++) {
         const lat = r_lat[r];
-        const itczLat = itczLookup(r_lon[r]) * 0.3; // dampened ITCZ, same as precip
+        const itczLat = itczLookup(r_lon[r]) * CLIMATE.HEUR_ITCZ_SHIFT_DAMPEN; // dampened ITCZ, same as precip
         const signedDist = lat - itczLat;
         const distDeg = Math.abs(signedDist) / DEG;
         const northOfItcz = signedDist > 0;
@@ -190,7 +200,7 @@ export function computeHeuristicPrecipitation(mesh, r_xyz, r_elevation, windResu
             // equator. The full ITCZ swing (up to 15-20°) would drag the
             // subtropical desert belt too far, drying the true equator and
             // wetting the mid-latitudes in the shifted season.
-            const itczLat = itczLookup(lon) * 0.3;
+            const itczLat = itczLookup(lon) * CLIMATE.HEUR_ITCZ_SHIFT_DAMPEN;
             const signedDist = lat - itczLat;
             const distFromItczDeg = Math.abs(signedDist) / DEG;
             const isNorthOfItcz = signedDist > 0;
@@ -199,7 +209,7 @@ export function computeHeuristicPrecipitation(mesh, r_xyz, r_elevation, windResu
             // ── B. Seasonal modifier + Mediterranean subtropical suppression ──
             const absLatDeg = Math.abs(lat) / DEG;
             const inSummerHemi = isSummer ? (lat >= 0) : (lat < 0);
-            let seasonMod = inSummerHemi ? 1.1 : 0.9;
+            let seasonMod = inSummerHemi ? CLIMATE.HEUR_SEASON_SUMMER_MOD : CLIMATE.HEUR_SEASON_WINTER_MOD;
 
             // Mediterranean suppression: subtropical highs expand poleward in
             // local summer, strongly suppressing rainfall at 25-42° latitude.
@@ -213,7 +223,7 @@ export function computeHeuristicPrecipitation(mesh, r_xyz, r_elevation, windResu
                 const medSuppress = smoothstep(22, 30, absLatDeg)
                     * (1 - smoothstep(38, 45, absLatDeg));
                 const wc = r_westCoast[r]; // +1 west coast, -1 east coast, 0 inland
-                const strength = 0.15 + wc * 0.20; // 0.35 west coast, 0.15 inland, ~0 east coast
+                const strength = CLIMATE.HEUR_MED_SUPPRESS_BASE + wc * CLIMATE.HEUR_MED_WESTCOAST_BONUS; // 0.35 west coast, 0.15 inland, ~0 east coast
                 seasonMod *= (1 - medSuppress * Math.max(0, strength));
             }
 
@@ -221,7 +231,7 @@ export function computeHeuristicPrecipitation(mesh, r_xyz, r_elevation, windResu
             let contMod = 1.0;
             const cont = (r_isLand[r] && r_continentality) ? r_continentality[r] : 0;
             if (cont > 0) {
-                contMod = 1.0 - cont * cont * 0.65;
+                contMod = 1.0 - cont * cont * CLIMATE.HEUR_CONT_DRYNESS;
             }
 
             // ── D. Orographic rain shadow (using heuristic zonal wind) ──
@@ -234,13 +244,13 @@ export function computeHeuristicPrecipitation(mesh, r_xyz, r_elevation, windResu
                 if (windDotGrad > 0) {
                     // Windward: up to +60% boost
                     const uplift = Math.min(1, windDotGrad * 15);
-                    oroMod = 1.0 + uplift * 0.6;
+                    oroMod = 1.0 + uplift * CLIMATE.HEUR_ORO_UPLIFT_MAX;
                 } else {
                     // Leeward: up to -70% suppression, scaled by mountain height
                     const heightKm = elevToHeightKm(Math.max(0, r_elevation[r]));
                     const heightScale = Math.min(1, heightKm / 3); // 3km+ = full shadow
                     const shadow = Math.min(1, -windDotGrad * 18);
-                    oroMod = Math.max(0.3, 1.0 - shadow * 0.7 * heightScale);
+                    oroMod = Math.max(0.3, 1.0 - shadow * CLIMATE.HEUR_ORO_SHADOW_MAX * heightScale);
                 }
             }
 

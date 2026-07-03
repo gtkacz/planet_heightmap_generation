@@ -70,6 +70,8 @@ After any code change to simulation or climate code, ensure **scale invariance**
 - **Thresholds in physical units** (degrees latitude, km altitude, °C, mm precipitation) are inherently scale-invariant and do NOT need scaling — e.g. "28° from ITCZ" or "heightKm > 1.5" are fine at any resolution.
 - When in doubt, ask: "if I double numRegions, does this value change meaning?" If yes, it needs scaling.
 
+Climate tunable parameters live in `js/climate-config.js` (mutable `CLIMATE` object; the terrain equivalent is `terrain-config.js`). When adding a new tunable constant to wind/temperature/precipitation code, prefer adding it there (plus a range in `tuning/climate/param-space.mjs`) over hardcoding. After any change to climate simulation behavior, run the automated Earth-match check: `node tuning/climate/evaluate.mjs` scores the simulated Köppen zones of an imported Earth heightmap against the real Köppen-Geiger classification (see `tuning/climate/README.md`); make sure the objective did not regress. `node tuning/climate/optimize.mjs` auto-tunes the parameters against real Earth.
+
 After any code change that adds, removes, or modifies features, check whether the SEO and AISEO files need updating. The project has several files that describe the app to search engines and AI models. These must stay accurate — outdated claims are worse than no claims. If a change adds, removes, or modifies any of the following, update the relevant files:
 
 - **`index.html` `<head>` meta tags** — The `<title>`, `description`, `og:description`, `twitter:description`, and `keywords` meta tags describe what the app does. Update if core capabilities change (e.g. new simulation type, new export format, new interaction mode).

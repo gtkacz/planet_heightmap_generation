@@ -4,6 +4,7 @@
 // ocean current warmth, and precipitation/cloud cover moderation.
 // Returns normalized 0-1 values mapped to a fixed -45 to +45 C range.
 
+import { CLIMATE } from './climate-config.js';
 import { smoothstep } from './wind.js';
 import { elevToHeightKm } from './color-map.js';
 import { smoothField, makeItczLookup } from './climate-util.js';
@@ -118,7 +119,7 @@ function lookupSwingAmplitude(latDeg, zoneVal) {
     const vHi = v10 + (v11 - v10) * zoneT;
     const fullSwing = vLo + (vHi - vLo) * latT;
 
-    return fullSwing / 2; // half-swing (amplitude)
+    return fullSwing * CLIMATE.TEMP_SWING_SCALE / 2; // half-swing (amplitude)
 }
 
 // ── Zone-based temperature continentality ───────────────────────────────────
@@ -780,7 +781,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
     const numRegions = mesh.numRegions;
     const timing = [];
 
-    const { r_lat, r_lon, r_isLand, r_continentality, r_plateContinentality } = windResult;
+    const { r_lat, r_lon, r_isLand, r_continentality, r_plateContinentality, r_westness } = windResult;
 
     // Minimal smoothing: 1 pass just to blend cell-to-cell noise
     const smoothPasses = 1;
@@ -793,7 +794,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
 
     // Pre-compute constants shared across seasons
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
-    const oceanWarmthPasses = Math.max(4, Math.round(1400 / avgEdgeKm));
+    const oceanWarmthPasses = Math.max(4, Math.round(CLIMATE.TEMP_OCEAN_WARMTH_DIFFUSE_KM / avgEdgeKm));
     const plateCont = r_plateContinentality || r_continentality;
 
     // Compute zone-based temperature continentality (Stages A-E)
@@ -847,20 +848,20 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             //  - T_flat: based on distance from a fixed ITCZ at ±5° (ocean default)
             // Near the tropics the real ITCZ matters; at high latitudes the
             // ITCZ position is irrelevant and a stable zonal baseline takes over.
-            const tropicalHW = 13;  // flat plateau half-width (degrees)
+            const tropicalHW = CLIMATE.TEMP_TROPICAL_PLATEAU_DEG;  // flat plateau half-width (degrees)
             const maxDist = 90 - tropicalHW;
 
             // Actual ITCZ curve
             const itczLat = itczLookup(lon);
             const distItcz = Math.abs(lat - itczLat) / DEG;
             const tItcz = Math.max(0, distItcz - tropicalHW) / maxDist;
-            const T_itcz = 28 - 47 * Math.pow(tItcz, 1.4);
+            const T_itcz = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tItcz, CLIMATE.TEMP_POLEWARD_EXP);
 
             // Flat reference curve (ITCZ at 5° in summer hemisphere)
             const flatItczLat = (name === 'summer' ? 5 : -5) * DEG;
             const distFlat = Math.abs(lat - flatItczLat) / DEG;
             const tFlat = Math.max(0, distFlat - tropicalHW) / maxDist;
-            const T_flat = 28 - 47 * Math.pow(tFlat, 1.4);
+            const T_flat = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tFlat, CLIMATE.TEMP_POLEWARD_EXP);
 
             // Blend: ITCZ curve dominates tropics, flat curve dominates poles
             const absLatDeg = Math.abs(lat) / DEG;
@@ -872,7 +873,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             // saturated air at ~5 C/km (moist adiabatic) due to latent heat
             // release. Use precipitation as a moisture proxy to interpolate.
             const moisture = r_precip ? r_precip[r] : 0.5;
-            const lapse = 4.5 + 4.8 * (1 - moisture); // 4.5 C/km (wet) to 9.3 C/km (dry)
+            const lapse = CLIMATE.TEMP_MOIST_LAPSE_C_PER_KM + CLIMATE.TEMP_DRY_LAPSE_EXTRA_C_PER_KM * (1 - moisture); // 4.5 C/km (wet) to 9.3 C/km (dry)
             if (isLand && elev > 0) {
                 T -= lapse * elevToHeightKm(elev);
             }
@@ -882,14 +883,14 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 // Direct ocean effect: warm/cold currents shift SST
                 const warmth = r_oceanWarmth[r];
                 const speed = r_oceanSpeed[r];
-                T += warmth * Math.min(1, speed * 2) * 16;
+                T += warmth * Math.min(1, speed * 2) * CLIMATE.TEMP_SST_CURRENT_SHIFT_C;
             } else if (isLand) {
                 // Coastal land: diffused ocean warmth fades with plate-based
                 // continentality so the effect reaches further inland and
                 // crosses continental shelves naturally
                 const cw = coastalWarmth[r];
                 if (Math.abs(cw) > 0.001) {
-                    T += cw * (1 - smoothstep(0, 0.95, pCont)) * 20;
+                    T += cw * (1 - smoothstep(0, 0.95, pCont)) * CLIMATE.TEMP_COASTAL_WARMTH_SHIFT_C;
                 }
             }
 
@@ -898,12 +899,12 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 const p = r_precip[r];
                 if (p > 0.5) {
                     // High precip → clouds → moderate toward latitude baseline
-                    const mod = smoothstep(0.5, 1.0, p) * 0.15;
+                    const mod = smoothstep(0.5, 1.0, p) * CLIMATE.TEMP_CLOUD_MOD_STRENGTH;
                     // Pull toward 0 (moderate extremes)
                     T *= (1 - mod);
                 } else if (p < 0.3) {
                     // Low precip → clear skies → amplify extremes
-                    const amp = smoothstep(0.3, 0.0, p) * 0.15;
+                    const amp = smoothstep(0.3, 0.0, p) * CLIMATE.TEMP_CLEARSKY_AMP_STRENGTH;
                     T *= (1 + amp);
                 }
             }
@@ -932,15 +933,41 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 const distWinter = Math.abs(lat - winItczLat) / DEG;
                 const tS = Math.max(0, distSummer - tropicalHW) / maxDist;
                 const tW = Math.max(0, distWinter - tropicalHW) / maxDist;
-                const T_summer = 28 - 47 * Math.pow(tS, 1.4);
-                const T_winter = 28 - 47 * Math.pow(tW, 1.4);
+                const T_summer = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tS, CLIMATE.TEMP_POLEWARD_EXP);
+                const T_winter = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tW, CLIMATE.TEMP_POLEWARD_EXP);
                 const itczAmplitude = Math.abs(T_summer - T_winter) / 2;
 
-                const extraAmplitude = Math.max(0, tableAmplitude - itczAmplitude) * 0.5;
+                const extraAmplitude = Math.max(0, tableAmplitude - itczAmplitude) * CLIMATE.TEMP_EXTRA_SWING_FACTOR;
 
                 const isLocalSummer = (name === 'summer') ? (lat >= 0) : (lat < 0);
-                const seasonSign = isLocalSummer ? 1 : -1;
-                T += seasonSign * extraAmplitude;
+                // Asymmetric split: continental winters deviate further below
+                // the annual mean than summers rise above it (radiative cooling
+                // under winter highs). TEMP_SWING_WINTER_SHARE = 0.5 → symmetric;
+                // 0.6 → winter gets 60% of the total extra swing.
+                const wShare = CLIMATE.TEMP_SWING_WINTER_SHARE;
+                T += isLocalSummer
+                    ? extraAmplitude * 2 * (1 - wShare)
+                    : -extraAmplitude * 2 * wShare;
+
+                // Targeted continental winter cooling: interiors radiate heat away
+                // in the cold season, deepening winters (coldest month below 0 °C
+                // → D climates) WITHOUT warming summers — so it fixes the
+                // continental-D deficit that a global swing multiplier can't reach
+                // without side effects. Scales with isotropic continentality, which
+                // is near-zero on narrow landmasses, so it leaves the Southern
+                // Hemisphere (no large interiors) untouched. Default 0 → no-op.
+                //
+                // West-coast relief: maritime WEST coasts in the westerly belt
+                // (onshore ocean air + warm currents) stay oceanic (Cfb) with mild
+                // winters, so the cooling is scaled down there — this is what keeps
+                // Western Europe / Pacific NW from tipping into continental D while
+                // interiors and east coasts still do. Default relief 0 → no-op.
+                if (isLand && !isLocalSummer) {
+                    const westRelief = r_westness
+                        ? 1 - Math.max(0, r_westness[r]) * CLIMATE.TEMP_WINTER_COOL_WEST_RELIEF
+                        : 1;
+                    T -= cont * CLIMATE.TEMP_CONT_WINTER_COOL_C * westRelief;
+                }
 
                 // Oceanic warming offset: ocean thermal inertia keeps oceanic
                 // zones warmer than their latitude alone suggests.  Strongest
@@ -948,7 +975,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 if (isLand) {
                     const oceanicFrac = Math.max(0, 1 - tc * 2); // 1 at HO, 0.5 at OC, 0 at SC+
                     const latFactor = smoothstep(15, 50, distAnn);
-                    const warmingOffset = oceanicFrac * latFactor * 5; // up to 5°C warmer
+                    const warmingOffset = oceanicFrac * latFactor * CLIMATE.TEMP_OCEANIC_WARMING_MAX_C; // up to 5°C warmer
                     T += warmingOffset;
                 }
             }
