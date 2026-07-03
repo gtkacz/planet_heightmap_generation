@@ -8,7 +8,7 @@ import { generateCoarsePlates, projectCoarsePlates } from './coarse-plates.js';
 import { smoothAndReconnectPlates } from './plates.js';
 import { assignElevation } from './elevation.js';
 import { buildSuperPlates } from './super-plates.js';
-import { warpTerrain, smoothElevation, erodeComposite, sharpenRidges, applySoilCreep } from './terrain-post.js';
+import { warpTerrain, smoothElevation, erodeComposite, sharpenRidges, applySoilCreep, applyDetailNoise } from './terrain-post.js';
 import { computeWind } from './wind.js';
 import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
@@ -16,7 +16,7 @@ import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
 import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
-import { SUPER_PLATE_PHYSICS_MULT } from './terrain-config.js';
+import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH } from './terrain-config.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -39,8 +39,38 @@ function computeTriangleElevations(mesh, r_elevation) {
     return t_elevation;
 }
 
+// Combined craton/basin dampen field for detail noise (1 = max dampen).
+// Returns null when geological annotations aren't available (e.g. heightmap imports).
+function computeDetailDampenField(debugLayers) {
+    const cw = debugLayers && debugLayers.cratonWeight;
+    const bw = debugLayers && debugLayers.basinWeight;
+    if (!cw || !bw) return null;
+    const N = cw.length;
+    const r_dampen = new Float32Array(N);
+    for (let r = 0; r < N; r++) {
+        const a = cw[r], b = bw[r];
+        r_dampen[r] = a > b ? a : b;
+    }
+    return r_dampen;
+}
+
+// Orogenic power as a [0, 1] amplitude multiplier for detail noise.
+// debugLayers.orogenicPower is stored as raw_oroPower − 0.5 (for diverging
+// colormap), so we add 0.5 and clamp to recover the [0, 1] factor.
+function computeOrogenicField(debugLayers) {
+    const op = debugLayers && debugLayers.orogenicPower;
+    if (!op) return null;
+    const N = op.length;
+    const r_oro = new Float32Array(N);
+    for (let r = 0; r < N; r++) {
+        const v = op[r] + 0.5;
+        r_oro[r] = v < 0 ? 0 : (v > 1 ? 1 : v);
+    }
+    return r_oro;
+}
+
 // Run terrain post-processing with per-step timing
-function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot) {
+function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot, r_dampen, r_orogenic) {
     const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp } = params;
     const timing = [];
 
@@ -64,6 +94,32 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
         const t0 = performance.now();
         smoothElevation(mesh, r_elevation, r_isOcean, smoothIters, smoothStr);
         timing.push({ stage: `Smoothing (${smoothIters} iters, str=${smoothStr.toFixed(2)})`, ms: performance.now() - t0 });
+    }
+
+    {
+        const t0 = performance.now();
+        applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, {
+            dampenField: r_dampen ?? null,
+            dampenStrength: DETAIL_NOISE_DAMPEN_STRENGTH,
+            amplitudeField: r_orogenic ?? null,
+        });
+        timing.push({ stage: 'Detail noise L1 (0-100m bumps)', ms: performance.now() - t0 });
+    }
+
+    {
+        const t0 = performance.now();
+        applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, {
+            amplitudeKm: 0.05,
+            frequencyMult: 2.0,
+            warpAmpMult: 2.0,
+            bipolar: true,
+            biasExponent: 0.4,
+            seedOffset: 13579,
+            dampenField: r_dampen ?? null,
+            dampenStrength: DETAIL_NOISE_DAMPEN_STRENGTH,
+            amplitudeField: r_orogenic ?? null,
+        });
+        timing.push({ stage: 'Detail noise L2 (±50m biased)', ms: performance.now() - t0 });
     }
 
     if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0) {
@@ -217,7 +273,7 @@ function handleGenerate(data) {
         let superPlateData = null;
         if (P >= 8) {
             t0 = performance.now();
-            superPlateData = buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity);
+            superPlateData = buildSuperPlates(coarseMesh, coarse_r_plate, plateSeeds, plateVec, plateIsOcean, plateDensity, r_plate);
             timing.push({ stage: `Super plates (${superPlateData.numSuperPlates} groups from ${P} plates)`, ms: performance.now() - t0 });
 
             // Apply plate physics to super plates with stronger blending
@@ -254,10 +310,12 @@ function handleGenerate(data) {
         timing.push({ stage: 'Elevation (collisions + stress + distance fields + assignment)', ms: performance.now() - t0 });
 
         const prePostElev = new Float32Array(r_elevation);
+        const r_dampen = computeDetailDampenField(debugLayers);
+        const r_orogenic = computeOrogenicField(debugLayers);
 
         progress(60, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic);
         timing.push({ stage: 'Terrain post-processing (total)', ms: performance.now() - t0 });
         debugLayers.erosionDelta = dl_erosionDelta;
 
@@ -339,7 +397,15 @@ function handleGenerate(data) {
             mountain_r: new Set(mountain_r), coastline_r: new Set(coastline_r), ocean_r: new Set(ocean_r),
             r_stress: new Float32Array(r_stress),
             temperatureOffset, precipitationOffset, landCoverage,
-            cachedWind: windResult, cachedOcean: oceanResult
+            cachedWind: windResult, cachedOcean: oceanResult,
+            // Retain detail-noise dampen + orogenic fields so reapply (which
+            // reuses prePostElev) shapes the noise the same way as the initial
+            // generate over craton/basin and orogenic regions.
+            r_dampen: r_dampen ? new Float32Array(r_dampen) : null,
+            r_orogenic: r_orogenic ? new Float32Array(r_orogenic) : null,
+            // Retain coarse-plate data so editRecompute can rebuild super
+            // plates with the same detail-independent adjacency graph.
+            coarseMesh, coarse_r_plate: new Int32Array(coarse_r_plate)
         };
         timing.push({ stage: 'Clone state for retention', ms: performance.now() - t0 });
 
@@ -425,7 +491,7 @@ function handleReapply(data) {
 
         progress(20, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed, undefined, W.r_dampen, W.r_orogenic);
         const tPost = performance.now() - t0;
 
         // Update retained final elevation for deferred climate
@@ -529,9 +595,10 @@ function handleEditRecompute(data) {
         const spread = 5;
 
         // Rebuild super plates from updated plate ocean/density state
+        // (uses retained coarse-plate data for detail-stable adjacency graph)
         let superPlateData = null;
         if ((W.P || 0) >= 8) {
-            superPlateData = buildSuperPlates(mesh, r_plate, plateSeeds, plateVec, plateIsOcean, W.plateDensity);
+            superPlateData = buildSuperPlates(W.coarseMesh, W.coarse_r_plate, plateSeeds, plateVec, plateIsOcean, W.plateDensity, r_plate);
         }
 
         let t0 = performance.now();
@@ -540,10 +607,14 @@ function handleEditRecompute(data) {
         const tElev = performance.now() - t0;
 
         const prePostElev = new Float32Array(r_elevation);
+        const r_dampen = computeDetailDampenField(debugLayers);
+        const r_orogenic = computeOrogenicField(debugLayers);
+        W.r_dampen = r_dampen ? new Float32Array(r_dampen) : null;
+        W.r_orogenic = r_orogenic ? new Float32Array(r_orogenic) : null;
 
         progress(50, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot, r_dampen, r_orogenic);
         const tPost = performance.now() - t0;
         debugLayers.erosionDelta = dl_erosionDelta;
 

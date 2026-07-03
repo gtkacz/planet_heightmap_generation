@@ -776,6 +776,34 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
             for (let r = 0; r < ctx.mesh.numRegions; r++) { if (r_elevation[r] <= 0) r_isOcean[r] = 1; }
             const preErosion = new Float32Array(r_elevation);
             if (smoothing > 0) m.post.smoothElevation(ctx.mesh, r_elevation, r_isOcean, Math.round(1 + smoothing * 4), 0.2 + smoothing * 0.5);
+            // Build craton+basin dampen field so detail noise stays subtle over geologically quiet regions.
+            let r_dampen = null;
+            if (debugLayers.cratonWeight && debugLayers.basinWeight) {
+                r_dampen = new Float32Array(ctx.mesh.numRegions);
+                for (let r = 0; r < ctx.mesh.numRegions; r++) {
+                    const a = debugLayers.cratonWeight[r], b = debugLayers.basinWeight[r];
+                    r_dampen[r] = a > b ? a : b;
+                }
+            }
+            // Orogenic-power amplitude multiplier — restores [0,1] from the diverging-stored [-0.5, +0.5].
+            let r_orogenic = null;
+            if (debugLayers.orogenicPower) {
+                r_orogenic = new Float32Array(ctx.mesh.numRegions);
+                for (let r = 0; r < ctx.mesh.numRegions; r++) {
+                    const v = debugLayers.orogenicPower[r] + 0.5;
+                    r_orogenic[r] = v < 0 ? 0 : (v > 1 ? 1 : v);
+                }
+            }
+            m.post.applyDetailNoise(ctx.mesh, ctx.r_xyz, r_elevation, r_isOcean, ctx.seed, {
+                dampenField: r_dampen, dampenStrength: 0.5,
+                amplitudeField: r_orogenic,
+            });
+            m.post.applyDetailNoise(ctx.mesh, ctx.r_xyz, r_elevation, r_isOcean, ctx.seed, {
+                amplitudeKm: 0.05, frequencyMult: 2.0, warpAmpMult: 2.0,
+                bipolar: true, biasExponent: 0.4, seedOffset: 13579,
+                dampenField: r_dampen, dampenStrength: 0.5,
+                amplitudeField: r_orogenic,
+            });
             if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0)
                 m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion);
             if (ridgeSharpening > 0) m.post.sharpenRidges(ctx.mesh, r_elevation, r_isOcean, Math.round(1 + ridgeSharpening * 3), ridgeSharpening * 0.08);

@@ -13,6 +13,7 @@
 // correct precipitation pattern (s/w/f).  Without this, Mediterranean (Cs)
 // and monsoon (Cw/Dw) climates are hemisphere-flipped.
 
+import { CLIMATE } from './climate-config.js';
 import { smoothstep } from './wind.js';
 
 /**
@@ -74,6 +75,7 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
     const tWinter = tempResult.r_temperature_winter;
     const pSummer = precipResult.r_precip_summer;
     const pWinter = precipResult.r_precip_winter;
+    const r_westness = precipResult.r_westness || null;  // +1 west, −1 east coast
 
     for (let r = 0; r < n; r++) {
         // ── Ocean ──
@@ -96,7 +98,7 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         // continental winters from dragging shoulder temps too low — in reality
         // shoulder months track closer to the summer peak than to the annual
         // mean when the swing is very asymmetric in duration.
-        const Tshoulder = Thot - (Thot - Tcold) * (1.2 / 6);
+        const Tshoulder = Thot - (Thot - Tcold) * (CLIMATE.KOPPEN_SHOULDER_FRAC / 6);
 
         // ── Hemisphere-aware local seasons ──
         // Determine which simulation season is this cell's LOCAL warm season.
@@ -105,8 +107,8 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
 
         // Precipitation: each season value ∈ [0,1] represents ~6 months.
         // Scale to approximate mm for that half-year.
-        const Ps = Math.max(0, pSummer[r]) * 1000;   // NH summer half-year mm
-        const Pw = Math.max(0, pWinter[r]) * 1000;    // NH winter half-year mm
+        const Ps = Math.max(0, pSummer[r]) * CLIMATE.KOPPEN_PRECIP_SCALE_MM;   // NH summer half-year mm
+        const Pw = Math.max(0, pWinter[r]) * CLIMATE.KOPPEN_PRECIP_SCALE_MM;    // NH winter half-year mm
         const Pann = Ps + Pw;                          // annual mm
 
         // Local summer/winter precipitation (hemisphere-corrected)
@@ -123,7 +125,8 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         // Factor: at equal seasons (ratio=1) → driest ≈ 0.7× average
         //         at strong monsoon (ratio=5+) → driest ≈ 0.35× average
         const seasonRatio = Math.max(PsMonthLocal, PwMonthLocal) / (Math.min(PsMonthLocal, PwMonthLocal) || 1);
-        const driestFraction = 0.60 - 0.35 * smoothstep(1, 4, seasonRatio);
+        const driestFraction = CLIMATE.KOPPEN_DRIEST_FRAC_BASE
+            - CLIMATE.KOPPEN_DRIEST_FRAC_DROP * smoothstep(1, 4, seasonRatio);
         const Pdry = Math.min(PsMonthLocal, PwMonthLocal) * driestFraction;
 
         // ================================================================
@@ -189,9 +192,22 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         }
         Pthresh = Math.max(0, Pthresh);
 
-        if (Pann < Pthresh) {
+        // Aridity uses a DECOUPLED precip scale: the single KOPPEN_PRECIP_SCALE_MM
+        // has to serve the aridity threshold, the s/w monthly ratios, and the
+        // Af/Am cutoffs at once, which over-constrains it. KOPPEN_ARIDITY_SCALE
+        // (default 1) lets the desert extent be calibrated independently of the
+        // seasonal-subtype thresholds. >1 → wetter aridity test → fewer deserts.
+        //
+        // East-coast aridity discount: humid-subtropical east coasts (S. China,
+        // Florida, SE US) have real rainfall but sit just under the threshold, so
+        // they misclassify as steppe/desert. Boosting their EFFECTIVE aridity
+        // precip by KOPPEN_EAST_COAST_WET rescues them WITHOUT wetting true west-
+        // coast/interior deserts (Sahara), which read eastness ≈ 0. Default 0.
+        const eastness = r_westness ? Math.max(0, -r_westness[r]) : 0;
+        const PannArid = Pann * CLIMATE.KOPPEN_ARIDITY_SCALE * (1 + eastness * CLIMATE.KOPPEN_EAST_COAST_WET);
+        if (PannArid < Pthresh) {
             const isHot = Tann >= 18;  // standard Köppen: h if mean annual temp >= 18°C
-            if (Pann < Pthresh * 0.5) {
+            if (PannArid < Pthresh * 0.5) {
                 // Desert
                 r_koppen[r] = isHot ? CODE_TO_ID['BWh'] : CODE_TO_ID['BWk'];
             } else {
@@ -217,9 +233,10 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
         // f  = no dry season
         let precipPattern;
         const localSummerDrier = PsummerLocal < PwinterLocal;
-        if (localSummerDrier && PsMonthLocal < 50 && PsMonthLocal < PwMonthLocal / 2) {
+        if (localSummerDrier && PsMonthLocal < CLIMATE.KOPPEN_S_SUMMER_MAX_MM
+            && PsMonthLocal < PwMonthLocal / CLIMATE.KOPPEN_S_RATIO) {
             precipPattern = 's';
-        } else if (!localSummerDrier && PwMonthLocal < PsMonthLocal / 3) {
+        } else if (!localSummerDrier && PwMonthLocal < PsMonthLocal / CLIMATE.KOPPEN_W_RATIO) {
             precipPattern = 'w';
         } else {
             precipPattern = 'f';
@@ -253,7 +270,7 @@ export function classifyKoppen(mesh, r_elevation, tempResult, precipResult) {
             //   Am: Pann >= 25*(100 - Pdry)  (i.e. enough total rain to sustain forest
             //       despite a short dry spell)
             //   Aw: everything else
-            if (Pdry >= 60) {
+            if (Pdry >= CLIMATE.KOPPEN_AF_DRY_MIN_MM) {
                 r_koppen[r] = CODE_TO_ID['Af'];
             } else if (Pann >= 25 * (100 - Pdry)) {
                 r_koppen[r] = CODE_TO_ID['Am'];

@@ -2,6 +2,7 @@
 // orographic effects, ITCZ uplift, frontal convergence, and polar fronts.
 // Computes per-region precipitation for summer and winter seasons.
 
+import { CLIMATE } from './climate-config.js';
 import { smoothstep } from './wind.js';
 import { computeGradients } from './wind.js';
 import { elevToHeightKm } from './color-map.js';
@@ -70,7 +71,7 @@ function advectMoisture(mesh, r_xyz, r_heightKm, r_isLand,
         if (!r_isLand[r]) {
             // Ocean cells: base moisture proportional to warmth
             const warmth = r_oceanWarmth ? r_oceanWarmth[r] : 0;
-            moisture[r] = 0.4 + 0.35 * Math.max(0, warmth);
+            moisture[r] = CLIMATE.PRECIP_OCEAN_MOISTURE_BASE + 0.35 * Math.max(0, warmth);
             continue;
         }
         if (r_coastDistLand[r] !== 0) continue; // not a coast cell
@@ -110,7 +111,7 @@ function advectMoisture(mesh, r_xyz, r_heightKm, r_isLand,
 
     // Base friction: ~78% moisture survives the full maxHops
     // distance over flat terrain. Per-hop retention = 0.78^(1/maxHops).
-    const depletionBase = 1 - Math.pow(0.78, 1 / maxHops);
+    const depletionBase = 1 - Math.pow(CLIMATE.PRECIP_ADVECT_FLAT_SURVIVAL, 1 / maxHops);
 
     // Iterative downwind propagation (ping-pong double-buffering)
     let src = moisture;
@@ -162,7 +163,7 @@ function advectMoisture(mesh, r_xyz, r_heightKm, r_isLand,
                 // distance. A ~1 km total rise dumps significant moisture,
                 // ~2 km near-total.
                 const normalizedGain = heightGain * maxHops;
-                const elevDepletion = Math.min(0.8, normalizedGain * 0.55);
+                const elevDepletion = Math.min(0.8, normalizedGain * CLIMATE.PRECIP_ELEV_DEPLETION_PER_KM);
                 const depletion = depletionBase + elevDepletion;
 
                 const carried = incoming * Math.max(0, 1 - depletion);
@@ -207,10 +208,11 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
     // hops ≈ 2000 / edgeLengthKm
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
     const avgEdgeRad = Math.PI / Math.sqrt(numRegions);
-    const maxHops = Math.max(8, Math.min(20, Math.round(2000 / avgEdgeKm)));
+    const maxHops = Math.max(8, Math.min(20, Math.round(CLIMATE.PRECIP_ADVECT_REACH_KM / avgEdgeKm)));
 
     // Coast distance through land — reuse BFS already computed by wind.js
     const r_coastDistLand = windResult.r_coastDistLand;
+    const r_westness = windResult.r_westness;  // +1 west coast, −1 east coast, 0 interior
 
     // Elevation gradient for orographic detection (shared).
     // Use a smoothed copy of elevation so local noise/crags don't fragment
@@ -317,11 +319,11 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             const itczLat = itczLookup(lon);
             const distFromItcz = Math.abs(lat - itczLat) / DEG;
             const cont = (isLand && r_continentality) ? r_continentality[r] : 0;
-            if (distFromItcz < 15) {
-                const itczStrength = smoothstep(15, 0, distFromItcz);
+            if (distFromItcz < CLIMATE.PRECIP_ITCZ_WIDTH_DEG) {
+                const itczStrength = smoothstep(CLIMATE.PRECIP_ITCZ_WIDTH_DEG, 0, distFromItcz);
                 // Core ITCZ (within 5°): strong uplift and convective rain
-                const coreBoost = distFromItcz < 5 ? 1.5 : 1.0;
-                p = p * (1 + itczStrength * coreBoost) + itczStrength * 0.3;
+                const coreBoost = distFromItcz < 5 ? CLIMATE.PRECIP_ITCZ_CORE_BOOST : 1.0;
+                p = p * (1 + itczStrength * coreBoost) + itczStrength * CLIMATE.PRECIP_ITCZ_ADDITIVE;
             }
 
             // (b) Frontal precipitation: actual wind convergence
@@ -338,7 +340,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                 // Raw convergence ∝ avgEdgeRad (neighbor displacements shrink
                 // at higher resolution), so normalize to make scale-invariant.
                 const convStrength = Math.min(1, (conv / avgEdgeRad) * 0.055);
-                p = p * (1 + convStrength * 1.2) + convStrength * moisture[r] * 0.4;
+                p = p * (1 + convStrength * CLIMATE.PRECIP_CONV_MULT_BOOST) + convStrength * moisture[r] * CLIMATE.PRECIP_CONV_ADD_FRAC;
             }
 
             // (c) Orographic effects (land only)
@@ -357,13 +359,13 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                     // the wind is pushing up, the more rain wrung out.
                     // gradient strength matters more than absolute height.
                     const uplift = Math.min(1, windDotGrad * 15);
-                    p += uplift * 1.0;
+                    p += uplift * CLIMATE.PRECIP_ORO_UPLIFT_ADD;
                 } else {
                     // Leeward: rain shadow. The advection step already depleted
                     // moisture crossing the ridge; this is the *extra* suppression
                     // from descending/warming air (foehn drying) on the lee side.
                     const shadow = Math.min(1, -windDotGrad * 18);
-                    p *= Math.max(0.02, 1 - shadow * 0.95);
+                    p *= Math.max(0.02, 1 - shadow * CLIMATE.PRECIP_ORO_SHADOW_MAX_SUPPRESS);
                 }
             }
 
@@ -377,9 +379,9 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             // poleward in local summer (creating Mediterranean dry summers)
             // and retreats equatorward in local winter (allowing westerly rain).
             const inLocalSummer = (name === 'summer') ? (lat >= 0) : (lat < 0);
-            const subtropCenter = inLocalSummer ? 30 : 24;
-            const subtropWidth  = inLocalSummer ? 16 : 12;
-            let   subtropPeak   = inLocalSummer ? 0.50 : 0.30;
+            const subtropCenter = inLocalSummer ? CLIMATE.PRECIP_SUBTROP_CENTER_SUMMER_DEG : CLIMATE.PRECIP_SUBTROP_CENTER_WINTER_DEG;
+            const subtropWidth  = inLocalSummer ? CLIMATE.PRECIP_SUBTROP_WIDTH_SUMMER_DEG : CLIMATE.PRECIP_SUBTROP_WIDTH_WINTER_DEG;
+            let   subtropPeak   = inLocalSummer ? CLIMATE.PRECIP_SUBTROP_PEAK_SUMMER : CLIMATE.PRECIP_SUBTROP_PEAK_WINTER;
 
             // East-coast monsoon relief: reduce summer drying where
             // poleward winds bring tropical moisture onshore. On Earth
@@ -391,8 +393,19 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                     const coastDist = r_coastDistLand[r] >= 0 ? r_coastDistLand[r] : maxHops;
                     const coastProximity = 1 - smoothstep(0, maxHops * 0.4, coastDist);
                     const monsoonRelief = smoothstep(0, 0.15, polewardWind) * coastProximity;
-                    subtropPeak *= (1 - monsoonRelief * 0.7);
+                    subtropPeak *= (1 - monsoonRelief * CLIMATE.PRECIP_MONSOON_RELIEF_MAX);
                 }
+            }
+
+            // East-coast geographic relief: the subtropical high's dry flank sits
+            // over WEST coasts; EAST coasts (westness < 0) get onshore moisture and
+            // stay humid subtropical (Cfa), not Mediterranean/steppe. This is the
+            // longitude-aware version the wind-gated relief above could not deliver
+            // (the simulated summer wind is not reliably onshore). Also removes the
+            // spurious dry-summer Csa that appears on east coasts (e.g. SE Australia).
+            if (isLand && r_westness) {
+                const eastness = Math.max(0, -r_westness[r]);   // 0 west/interior → 1 full east coast
+                subtropPeak *= (1 - eastness * CLIMATE.PRECIP_SUBTROP_EAST_RELIEF);
             }
 
             const subtropDist = Math.abs(absLatDeg - subtropCenter);
@@ -416,6 +429,26 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                 p *= (1 - totalSuppression); // totalSuppression is negative here
             }
 
+            // (d2) Summer monsoon moisture source. Where the summer ITCZ has
+            // migrated poleward over a heated continent, the thermal low draws
+            // moist oceanic air inland → strong wet summer; combined with the
+            // subtropical dry winter above this yields the Köppen 'w' pattern
+            // (savanna Aw, monsoon Cwa/Dwa) and keeps humid-subtropical east
+            // coasts (S. China, Florida, SE US) from drying out. This is the
+            // moisture the wind-gated relief could never deliver — the simulated
+            // summer wind over hot interiors is not reliably onshore. Generalizes
+            // via the ITCZ excursion (obliquity) and coast proximity; default 0.
+            if (inLocalSummer && isLand && CLIMATE.PRECIP_MONSOON_ADD > 0) {
+                const mItczLat = itczLookup(lon);                 // this season's ITCZ (radians)
+                const poleward = (lat >= 0 ? (lat - mItczLat) : (mItczLat - lat)) / DEG;
+                if (poleward > 0 && poleward < CLIMATE.PRECIP_MONSOON_REACH_DEG) {
+                    const band = smoothstep(CLIMATE.PRECIP_MONSOON_REACH_DEG, 0, poleward);
+                    const cd = r_coastDistLand[r] >= 0 ? r_coastDistLand[r] : maxHops;
+                    const supply = 1 - smoothstep(0, maxHops, cd);  // ocean moisture within reach
+                    p += CLIMATE.PRECIP_MONSOON_ADD * band * supply;
+                }
+            }
+
             // (e) Polar front: diffuse precipitation at high latitudes
             // The polar front is broad and pushes moisture deep inland —
             // the blog cites ~2000 km downwind, ~1500 km crosswind from
@@ -427,9 +460,9 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                 const coastDist = r_coastDistLand[r] < 0 ? maxHops : r_coastDistLand[r];
                 const inlandFade = 1 - smoothstep(0, maxHops, coastDist);
                 // Base: always present regardless of coast distance
-                const polarBase = polarStrength * 0.10;
+                const polarBase = polarStrength * CLIMATE.PRECIP_POLAR_BASE_ADD;
                 // Coastal enhancement: fades inland
-                const polarCoastal = polarStrength * 0.20 * inlandFade;
+                const polarCoastal = polarStrength * CLIMATE.PRECIP_POLAR_COASTAL_ADD * inlandFade;
                 // Mostly enhances existing moisture, but adds some regardless
                 p += polarBase + polarCoastal;
                 p *= (1 + polarStrength * 0.15); // gentle multiplicative boost
@@ -440,7 +473,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             // 1.0 at ~2000km), we can use it directly. Squared curve keeps
             // near-coast areas gentle while ramping for deep interiors.
             if (isLand && cont > 0) {
-                const dryness = cont * cont * 0.55;
+                const dryness = cont * cont * CLIMATE.PRECIP_CONT_DRYNESS;
                 p *= Math.max(0.03, 1 - dryness);
             }
 
@@ -471,8 +504,8 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             // By 3000 km almost nothing remains.
             if (isLand && r_coastDistLand[r] > 0) {
                 const distKm = r_coastDistLand[r] * avgEdgeKm;
-                if (distKm > 2000) {
-                    const fade = 1 - smoothstep(2000, 3000, distKm);
+                if (distKm > CLIMATE.PRECIP_COAST_CUTOFF_START_KM) {
+                    const fade = 1 - smoothstep(CLIMATE.PRECIP_COAST_CUTOFF_START_KM, CLIMATE.PRECIP_COAST_CUTOFF_END_KM, distKm);
                     p *= Math.max(0.03, fade);
                 }
             }
@@ -547,7 +580,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             dnOff[numRegions] = dnCount;
 
             // --- Pass 1: Propagate shadow DOWNWIND (~2500 km, 15% survives) ---
-            const shadowHops = Math.max(8, Math.round(2500 / avgEdgeKm));
+            const shadowHops = Math.max(8, Math.round(CLIMATE.PRECIP_RS_SHADOW_PROP_KM / avgEdgeKm));
             const shadowDecay = 1 - Math.pow(0.15, 1 / shadowHops);
             const shadowField = new Float32Array(rainShadow);
             // Reusable ping-pong buffers for both shadow and windward passes
@@ -620,11 +653,40 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             const rs = rainShadow[r];
             if (rs < -0.01) {
                 // Shadow zone: precipitation suppression behind mountains
-                const strength = Math.min(1, -rs * 2.25);
-                precip[r] *= Math.max(0.02, 1 - strength * 0.92);
+                const strength = Math.min(1, -rs * CLIMATE.PRECIP_RS_APPLY_STRENGTH_SCALE);
+                precip[r] *= Math.max(0.02, 1 - strength * CLIMATE.PRECIP_RS_APPLY_MAX_SUPPRESS);
             } else if (rs > 0.01) {
                 // Windward zone: strong orographic precipitation enhancement
-                precip[r] += rs * 1.2;
+                precip[r] += rs * CLIMATE.PRECIP_RS_APPLY_WINDWARD_ADD;
+            }
+        }
+
+        // ── Step 2d: Ocean-current coastal modulation ──
+        // Warm poleward currents wet the adjacent coast (marine convection);
+        // cold equatorward currents (Atacama/Namib/Benguela/California pattern)
+        // suppress coastal rain via a capping inversion. Reuses the already-
+        // computed ocean-warmth field; only touches a shallow coastal strip.
+        // Both strengths default 0 → no-op.
+        const coldSup = CLIMATE.PRECIP_COLD_CURRENT_SUPPRESS;
+        const warmBoost = CLIMATE.PRECIP_WARM_CURRENT_BOOST;
+        if (r_oceanWarmth && (coldSup > 0 || warmBoost > 0)) {
+            const coastalReach = Math.max(2, Math.round(300 / avgEdgeKm)); // ~300 km inland
+            const { adjOffset, adjList } = mesh;
+            for (let r = 0; r < numRegions; r++) {
+                if (!r_isLand[r]) continue;
+                const cd = r_coastDistLand[r];
+                if (cd < 0 || cd > coastalReach) continue;
+                let wsum = 0, wn = 0;
+                const end = adjOffset[r + 1];
+                for (let ni = adjOffset[r]; ni < end; ni++) {
+                    const nb = adjList[ni];
+                    if (!r_isLand[nb]) { wsum += r_oceanWarmth[nb]; wn++; }
+                }
+                if (wn === 0) continue;
+                const w = wsum / wn;                 // adjacent ocean warmth (−1..1)
+                const fade = 1 - cd / coastalReach;  // full at coast, 0 inland
+                if (w < 0) precip[r] *= Math.max(0.05, 1 + w * coldSup * fade);
+                else precip[r] *= 1 + w * warmBoost * fade;
             }
         }
 
@@ -652,7 +714,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
         const heur = heuristic[`r_precip_${seasonName}`];
         const blended = new Float32Array(numRegions);
         for (let r = 0; r < numRegions; r++) {
-            blended[r] = 0.5 * complex[r] + 0.5 * heur[r];
+            blended[r] = CLIMATE.PRECIP_MODEL_BLEND * complex[r] + (1 - CLIMATE.PRECIP_MODEL_BLEND) * heur[r];
         }
 
         // 95th-percentile normalization on blended result
@@ -669,9 +731,9 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
         const r_continentality = windResult.r_continentality;
         if (r_continentality) {
             for (let r = 0; r < numRegions; r++) {
-                if (r_isLand[r] && r_continentality[r] > 0.5) {
-                    const t = smoothstep(0.5, 1.0, r_continentality[r]);
-                    const cap = 1.0 - t * 0.80;  // 1.0 at cont=0.5, 0.20 at cont=1.0
+                if (r_isLand[r] && r_continentality[r] > CLIMATE.PRECIP_CONT_CAP_FADE_START) {
+                    const t = smoothstep(CLIMATE.PRECIP_CONT_CAP_FADE_START, 1.0, r_continentality[r]);
+                    const cap = 1.0 - t * CLIMATE.PRECIP_CONT_CAP_MAX_REDUCTION;  // 1.0 at cont=0.5, 0.20 at cont=1.0
                     blended[r] = Math.min(blended[r], cap);
                 }
             }
@@ -679,8 +741,30 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
 
         result[`r_precip_${seasonName}`] = blended;
     }
+
+    // ── Step 5: Seasonal contrast exaggeration ──
+    // The two models each smooth the wet/dry season difference (advection
+    // averages, 50/50 blending, percentile normalization), which starves the
+    // Köppen w/s subtypes (monsoon Cw/Dw, Mediterranean Cs/Ds) of signal.
+    // Push each season away from the seasonal mean by a tunable factor.
+    // PRECIP_SEASON_CONTRAST = 1.0 → no change.
+    {
+        const c = CLIMATE.PRECIP_SEASON_CONTRAST;
+        if (c !== 1.0) {
+            const ps = result.r_precip_summer;
+            const pw = result.r_precip_winter;
+            for (let r = 0; r < numRegions; r++) {
+                const m = (ps[r] + pw[r]) / 2;
+                ps[r] = Math.max(0, m + (ps[r] - m) * c);
+                pw[r] = Math.max(0, m + (pw[r] - m) * c);
+            }
+        }
+    }
     timing.push({ stage: 'Precip: heuristic blend+normalize', ms: performance.now() - t0 });
 
+    // Pass the west/east field through so the Köppen classifier can give east
+    // coasts a selective aridity discount (they're humid-subtropical, not desert).
+    result.r_westness = r_westness;
     result._precipTiming = timing;
     return result;
 }
