@@ -1966,12 +1966,34 @@ function applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_pl
     };
 
     const hsPosRng = makeRng(seed + 1001);
+    // Nearest region by max dot product. Greedy hill-climb on the mesh
+    // adjacency graph (dot product is unimodal over the sphere for a fixed
+    // query, so ascent converges to the global nearest); a brute-force
+    // fallback guarantees exactness if the walk stalls at the step cap.
+    // `cur` is retained across calls (warm start) since consecutive queries
+    // along a hotspot chain are close.
+    const { adjOffset: _adjOff, adjList: _adjList } = mesh;
+    const _maxWalk = Math.ceil(Math.sqrt(numRegions));
+    let _nearCur = 0;
     const findNearestR = (px, py, pz) => {
-        let bestDot = -2, bestR = 0;
-        for (let r = 0; r < numRegions; r++) {
-            const dot = px * r_xyz[3*r] + py * r_xyz[3*r+1] + pz * r_xyz[3*r+2];
-            if (dot > bestDot) { bestDot = dot; bestR = r; }
+        let bestR = _nearCur;
+        let bestDot = px * r_xyz[3*bestR] + py * r_xyz[3*bestR+1] + pz * r_xyz[3*bestR+2];
+        let improved = true, steps = 0;
+        while (improved && steps < _maxWalk) {
+            improved = false; steps++;
+            for (let i = _adjOff[bestR], iEnd = _adjOff[bestR + 1]; i < iEnd; i++) {
+                const nb = _adjList[i];
+                const d = px * r_xyz[3*nb] + py * r_xyz[3*nb+1] + pz * r_xyz[3*nb+2];
+                if (d > bestDot) { bestDot = d; bestR = nb; improved = true; }
+            }
         }
+        if (steps >= _maxWalk) {
+            for (let r = 0; r < numRegions; r++) {
+                const d = px * r_xyz[3*r] + py * r_xyz[3*r+1] + pz * r_xyz[3*r+2];
+                if (d > bestDot) { bestDot = d; bestR = r; }
+            }
+        }
+        _nearCur = bestR;
         return bestR;
     };
 
