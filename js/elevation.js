@@ -1970,7 +1970,7 @@ function applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_pl
     // adjacency graph (dot product is unimodal over the sphere for a fixed
     // query, so ascent converges to the global nearest); a brute-force
     // fallback guarantees exactness if the walk stalls at the step cap.
-    // `cur` is retained across calls (warm start) since consecutive queries
+    // `_nearCur` is retained across calls (warm start) since consecutive queries
     // along a hotspot chain are close.
     const { adjOffset: _adjOff, adjList: _adjList } = mesh;
     const _maxWalk = Math.ceil(Math.sqrt(numRegions));
