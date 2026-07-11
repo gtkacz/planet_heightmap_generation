@@ -67,7 +67,13 @@ export const CLIMATE_DEFAULTS = Object.freeze({
     // ── Precipitation: moisture & advection ──
     PRECIP_OCEAN_MOISTURE_BASE: 0.4508,      // base moisture of ocean cells
     PRECIP_ADVECT_FLAT_SURVIVAL: 0.8901,    // moisture surviving full advection over flat land
-    PRECIP_ADVECT_REACH_KM: 3961.314,         // moisture advection physical reach
+    // Effective advection reach. Historically 3961 km, but the min(20)-hop clamp
+    // made the true reach ≈ 2001 km at the N=40,000 tuning resolution (20 hops ×
+    // ~100 km). The nominal 3961 was underdetermined (any value ≥ ~2000 km gave
+    // 20 hops at 40k). Set to the real effective value so the reach is consistent
+    // across Detail (fixes the default-204k drop to ~880 km); no-op at 40k.
+    PRECIP_ADVECT_REACH_KM: 2001,
+    PRECIP_ADVECT_MAX_HOPS: 60,               // ceiling that bounds advection cost at very high Detail
     PRECIP_ELEV_DEPLETION_PER_KM: 0.9906,   // moisture depletion per km of terrain rise
 
     // ── Precipitation: ITCZ & convergence ──

@@ -54,7 +54,10 @@ export const PARAM_SPACE = {
     // ── Precipitation (complex model) ──
     PRECIP_OCEAN_MOISTURE_BASE:       { min: 0.2,  max: 0.7 },
     PRECIP_ADVECT_FLAT_SURVIVAL:      { min: 0.5,  max: 0.95, high: true },
-    PRECIP_ADVECT_REACH_KM:           { min: 1000, max: 4000, high: true },
+    // Range narrowed around the effective reach: production reach now depends on
+    // this value (the clamp no longer flattens it), so it must stay near ~2000 km.
+    PRECIP_ADVECT_REACH_KM:           { min: 1500, max: 2500, high: true },
+    PRECIP_ADVECT_MAX_HOPS:           { min: 45,   max: 120 },
     PRECIP_ELEV_DEPLETION_PER_KM:     { min: 0.2,  max: 1.0,  high: true },
     PRECIP_ITCZ_WIDTH_DEG:            { min: 8,    max: 22,   high: true },
     PRECIP_ITCZ_CORE_BOOST:           { min: 1.0,  max: 2.5 },

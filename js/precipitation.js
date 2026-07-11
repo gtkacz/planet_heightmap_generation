@@ -208,7 +208,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
     // hops ≈ 2000 / edgeLengthKm
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
     const avgEdgeRad = Math.PI / Math.sqrt(numRegions);
-    const maxHops = Math.max(8, Math.min(20, Math.round(CLIMATE.PRECIP_ADVECT_REACH_KM / avgEdgeKm)));
+    const maxHops = Math.max(8, Math.min(CLIMATE.PRECIP_ADVECT_MAX_HOPS, Math.round(CLIMATE.PRECIP_ADVECT_REACH_KM / avgEdgeKm)));
 
     // Coast distance through land — reuse BFS already computed by wind.js
     const r_coastDistLand = windResult.r_coastDistLand;
