@@ -16,7 +16,7 @@ import {
     GLACIAL_WIDENING_FRAC, GLACIAL_TERMINUS_RATIO, GLACIAL_FJORD_ICE_MIN,
     GLACIAL_POST_SMOOTH, GLACIAL_MID_FLOOD_FRAC, GLACIAL_MID_FLOOD_CARVE,
     GLACIAL_INITIAL_CARVE,
-    HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY,
+    HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY, EROSION_REF_REGIONS,
     THERMAL_TRANSFER_FRAC,
     RIDGE_SHARPEN_CAP, VALLEY_DEEPEN_FACTOR, VALLEY_FLOOR_FRAC, VALLEY_FLOOR_MIN,
     DETAIL_NOISE_AMP_KM, DETAIL_NOISE_FREQ, DETAIL_NOISE_OCTAVES,
@@ -409,6 +409,9 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     if (totalIters <= 0) return;
 
     const N = mesh.numRegions;
+    // Convert raw upstream-cell counts to physical-area scale (no-op at the
+    // default Detail); see EROSION_REF_REGIONS in terrain-config.js.
+    const flowScale = EROSION_REF_REGIONS / N;
     const { adjOffset, adjList } = mesh;
 
     // Collect land cell indices
@@ -648,7 +651,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                 const target = drainTarget[r];
                 if (target < 0 || cellDist[r] <= 0) continue;
 
-                const factor = K * Math.pow(flow[r], m) * dt / cellDist[r];
+                const factor = K * Math.pow(flow[r] * flowScale, m) * dt / cellDist[r];
                 const h_receiver = Math.max(r_elevation[target], 0);
                 let h_new = (r_elevation[r] + factor * h_receiver) / (1 + factor);
 

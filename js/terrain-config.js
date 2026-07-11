@@ -473,6 +473,13 @@ export const GLACIAL_INITIAL_CARVE = 0.5;
 export const HYDRAULIC_DEPOSIT_FRAC = 0.5;
 export const HYDRAULIC_SLOPE_SENSITIVITY = 50;
 
+// Reference region count for flow-accumulation normalization (SP2).
+// flow[] and iceFlow[] are raw upstream-cell counts, which scale ∝ numRegions
+// for a fixed physical catchment; multiplying by (REF / N) converts them to a
+// physical-area-proportional quantity that is a no-op at the default Detail.
+// 204000 = detailFromSlider(600), the default Detail slider position.
+export const EROSION_REF_REGIONS = 204000;
+
 // ── Thermal Erosion (terrain-post.js) ──
 export const THERMAL_TRANSFER_FRAC = 0.5;
 
