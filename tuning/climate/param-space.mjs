@@ -72,7 +72,7 @@ export const PARAM_SPACE = {
     PRECIP_RS_APPLY_STRENGTH_SCALE:   { min: 1.0,  max: 4.0 },
     PRECIP_RS_APPLY_MAX_SUPPRESS:     { min: 0.6,  max: 0.98, high: true },
     PRECIP_RS_APPLY_WINDWARD_ADD:     { min: 0.5,  max: 2.0 },
-    PRECIP_RS_MAX_HOPS:               { min: 40,   max: 120 },
+    PRECIP_RS_MAX_HOPS:               { min: 45,   max: 120 },
     PRECIP_RS_WINDWARD_MAX_HOPS:      { min: 18,   max: 60 },
     PRECIP_SUBTROP_CENTER_SUMMER_DEG: { min: 25,   max: 38,   high: true },
     PRECIP_SUBTROP_CENTER_WINTER_DEG: { min: 18,   max: 30 },
