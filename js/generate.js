@@ -78,8 +78,8 @@ function fail(err) {
 }
 
 // Reconstruct SphereMesh from transferred data
-function reconstructMesh(triangles, halfedges, numRegions) {
-    return new SphereMesh(triangles, halfedges, numRegions);
+function reconstructMesh(triangles, halfedges, numRegions, meshAdj) {
+    return new SphereMesh(triangles, halfedges, numRegions, meshAdj || null);
 }
 
 // Build minimal wind-result-like object for computeOceanCurrents fallback.
@@ -187,7 +187,7 @@ if (worker) {
                 const tMainStart = performance.now();
 
                 const tReconStart = performance.now();
-                const mesh = reconstructMesh(msg.triangles, msg.halfedges, msg.numRegions);
+                const mesh = reconstructMesh(msg.triangles, msg.halfedges, msg.numRegions, msg.meshAdj);
                 const tRecon = performance.now() - tReconStart;
 
                 const tColorsStart = performance.now();

@@ -441,6 +441,12 @@ function handleGenerate(data) {
             triangles: mesh.triangles,
             halfedges: mesh.halfedges,
             numRegions: mesh.numRegions,
+            meshAdj: {
+                r_s: mesh._r_s,
+                adjOffset: mesh._adjOffset,
+                adjList: mesh._adjList,
+                adjTriList: mesh._adjTriList,
+            },
             r_xyz, t_xyz, r_plate,
             plateSeeds: Array.from(plateSeeds),
             plateVec,
