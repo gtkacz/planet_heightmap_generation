@@ -5,10 +5,12 @@
  * terrain-metrics scorecard drifts with resolution. Scale-invariant code
  * should produce near-identical metric values at every rung.
  *
- *   node tuning/scale-invariance.mjs --baseline   # record pre-fix divergence
- *   node tuning/scale-invariance.mjs              # report current vs baseline
- *   node tuning/scale-invariance.mjs --check      # exit 1 unless gated metrics
- *                                                 # improved by IMPROVE_FACTOR
+ *   node tuning/scale-invariance.mjs --baseline            # record pre-fix divergence
+ *   node tuning/scale-invariance.mjs                       # report current vs baseline
+ *   node tuning/scale-invariance.mjs --check                # exit 1 unless gated metrics
+ *                                                            # improved by IMPROVE_FACTOR
+ *   node tuning/scale-invariance.mjs --verify-determinism   # acceptance gate: same planet
+ *                                                            # code -> identical metrics
  *
  * Metric groups:
  *   GATE     — land-erosion/smoothing-sensitive, resolution-independent by
@@ -19,6 +21,26 @@
  *   RECORDED — everything else in the scorecard, reported but ungated
  *              (e.g. coast_complexity_index legitimately rises with
  *              resolution — Richardson effect — so it must not gate).
+ *
+ * Seed control:
+ *   In headless puppeteer the app's module Worker (generate.js) fails to
+ *   construct, so generation always runs on the synchronous main-thread
+ *   fallback (generateFallback). That path never reads Worker messages, so
+ *   patching Worker.prototype.postMessage (the harness's original seed
+ *   mechanism) never fires and every generation used
+ *   `Math.floor(Math.random() * 16777216)` — the divergence numbers measured
+ *   unrelated random worlds. Instead we drive the app's deterministic
+ *   URL-hash planet-code path: encode seed + params with encodePlanetCode
+ *   (js/planet-code.js, a pure function with no DOM access — safe to import
+ *   directly here) and navigate to `${baseUrl}#${code}`. main.js decodes the
+ *   hash, sets sliders, and calls generate(seed, ...) exactly once.
+ *
+ *   The fallback path also never populates window.__terrainMetrics (that
+ *   assignment only happens in the Worker's onmessage handler) — so after
+ *   generation finishes we compute metrics in-page ourselves via a fresh
+ *   dynamic import of js/terrain-metrics.js against the retained
+ *   state.curData, mirroring exactly what planet-worker.js does. No js/
+ *   files are modified; this only imports them.
  */
 
 import http from 'node:http';
@@ -26,6 +48,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer';
+import { encodePlanetCode } from '../js/planet-code.js';
+import { detailFromSlider } from '../js/detail-scale.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -35,6 +59,7 @@ fs.mkdirSync(SHOT_DIR, { recursive: true });
 
 const MODE = process.argv.includes('--baseline') ? 'baseline'
            : process.argv.includes('--check') ? 'check'
+           : process.argv.includes('--verify-determinism') ? 'verify-determinism'
            : 'report';
 
 // Regression tripwire, not an improvement gate. Investigation (SP2 Task 5)
@@ -64,12 +89,13 @@ const LADDER = [
   { pos: 792, approxN: 801000 },
 ];
 
-// Seeds: defaults (erosion at default sliders), high-erosion (maximizes the
+// Seeds: defaults (erosion at app-default sliders — glacial/hydraulic/thermal
+// left null so the DOM defaults are used), high-erosion (maximizes the
 // defect), zero-erosion (isolates the smoothing fixes from the erosion fixes).
 const SEEDS = [
-  { name: 'defaults',     seed: 42,  sliders: {} },
-  { name: 'high-erosion', seed: 300, sliders: { sGl: 0.8, sHEr: 0.8, sTEr: 0.8 } },
-  { name: 'zero-erosion', seed: 500, sliders: { sGl: 0, sHEr: 0, sTEr: 0 } },
+  { name: 'defaults',     seed: 42,  glacial: null, hydraulic: null, thermal: null },
+  { name: 'high-erosion', seed: 300, glacial: 0.8,  hydraulic: 0.8,  thermal: 0.8 },
+  { name: 'zero-erosion', seed: 500, glacial: 0,    hydraulic: 0,    thermal: 0 },
 ];
 
 // Land-erosion/smoothing-sensitive, resolution-independent by intent.
@@ -105,20 +131,63 @@ function startServer() {
   });
 }
 
-async function generateAndMeasure(browser, baseUrl, sc, rung) {
+// Read the app's current (default) slider values from the DOM. These are
+// static HTML attribute values, identical across every call, so we read
+// them once per browser session rather than once per (seed, rung).
+async function readDefaultSliders(browser, baseUrl) {
+  const page = await browser.newPage();
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    return await page.evaluate(() => {
+      const val = (id) => +document.getElementById(id).value;
+      return {
+        jitter: val('sJ'), P: val('sP'), numContinents: val('sCn'),
+        roughness: val('sNs'), terrainWarp: val('sTw'), smoothing: val('sS'),
+        glacialErosion: val('sGl'), hydraulicErosion: val('sHEr'), thermalErosion: val('sTEr'),
+        ridgeSharpening: val('sRs'), continentSizeVariety: val('sCsv'),
+        temperatureOffset: val('sTmp'), precipitationOffset: val('sPrc'), landCoverage: val('sLc'),
+      };
+    });
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+// Build a deterministic planet code for (seed config, rung) against the
+// app's current DOM defaults for every param the seed config doesn't override.
+function buildPlanetCode(sc, rung, defaults) {
+  const N = detailFromSlider(rung.pos);
+  return encodePlanetCode(
+    sc.seed,
+    N,
+    defaults.jitter,
+    defaults.P,
+    defaults.numContinents,
+    defaults.roughness,
+    defaults.terrainWarp,
+    defaults.smoothing,
+    sc.glacial ?? defaults.glacialErosion,
+    sc.hydraulic ?? defaults.hydraulicErosion,
+    sc.thermal ?? defaults.thermalErosion,
+    defaults.ridgeSharpening,
+    0.75, // soilCreep: fixed app constant — main.js hardcodes 0.75, no UI slider exists
+    defaults.continentSizeVariety,
+    defaults.temperatureOffset,
+    defaults.precipitationOffset,
+    defaults.landCoverage,
+    [],
+  );
+}
+
+async function generateAndMeasure(browser, baseUrl, sc, rung, defaults, shotName) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width: 1200, height: 900 });
     page.on('dialog', (d) => d.dismiss());
     page.on('pageerror', (e) => console.log(`  [PAGE EXCEPTION] ${e.message}`));
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    // The app auto-fires a default-slider generation on load (main.js) that
-    // disables #generate until it completes. Wait for that to finish before
-    // driving our own run, or our click no-ops and we measure the auto-gen.
-    await page.waitForFunction(
-      () => window.__terrainMetrics != null && !document.getElementById('generate').disabled,
-      { timeout: 600_000, polling: 250 },
-    );
+
+    const code = buildPlanetCode(sc, rung, defaults);
+    await page.goto(`${baseUrl}#${code}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
     await page.evaluate(() => {
       for (const id of ['tutorialOverlay', 'whatsNewOverlay']) {
@@ -126,52 +195,46 @@ async function generateAndMeasure(browser, baseUrl, sc, rung) {
       }
     });
 
-    const setSlider = (id, value) => page.evaluate(({ id, value }) => {
-      const el = document.getElementById(id); el.value = value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    }, { id, value: String(value) });
+    // The hash-load path in main.js fires exactly one generate() call; wait
+    // for it to finish (button re-enabled by resetUI()).
+    await page.waitForFunction(
+      () => !document.getElementById('generate').disabled,
+      { timeout: 600_000, polling: 250 },
+    );
 
-    await setSlider('sN', rung.pos);
-    for (const [id, val] of Object.entries(sc.sliders)) await setSlider(id, val);
-
-    // Inject fixed seed + request metrics + skip climate (not needed for
-    // terrain metrics; keeps the 299K rung fast).
-    await page.evaluate((seed) => {
-      const orig = Worker.prototype.postMessage;
-      Worker.prototype.postMessage = function (msg, ...rest) {
-        if (msg && msg.cmd === 'generate' && msg.seed === undefined) {
-          msg.seed = Number(seed);
-          msg.computeMetrics = true;
-          msg.skipClimate = true;
-        }
-        return orig.call(this, msg, ...rest);
-      };
-    }, sc.seed);
-
-    const done = page.evaluate((timeout) => new Promise((resolve, reject) => {
-      const btn = document.getElementById('generate');
-      const timer = setTimeout(() => reject(new Error('gen timeout')), timeout);
-      btn.addEventListener('generate-done', () => { clearTimeout(timer); resolve(); }, { once: true });
-    }), 600_000);
-    await new Promise((r) => setTimeout(r, 100));
-    await page.evaluate(() => { window.__terrainMetrics = null; });
-    await page.click('#generate');
-    await done;
-    await new Promise((r) => setTimeout(r, 500));
-
-    const metrics = await page.evaluate(() => window.__terrainMetrics);
+    // Compute metrics in-page: the synchronous fallback (which headless
+    // puppeteer always takes — see module docstring) never populates
+    // window.__terrainMetrics, so we call computeTerrainMetrics ourselves
+    // against the retained state.curData, exactly as planet-worker.js does.
+    const metrics = await page.evaluate(async () => {
+      const { state } = await import('/js/state.js');
+      const { computeTerrainMetrics } = await import('/js/terrain-metrics.js');
+      const d = state.curData;
+      if (!d) return { _error: 'no curData after generation' };
+      try {
+        return computeTerrainMetrics({
+          mesh: d.mesh, r_xyz: d.r_xyz, r_elevation: d.r_elevation,
+          r_plate: d.r_plate, plateIsOcean: d.plateIsOcean,
+          r_stress: d.r_stress, debugLayers: d.debugLayers, prePostElev: d.prePostElev,
+        });
+      } catch (e) {
+        return { _error: e.message };
+      }
+    });
     if (!metrics || metrics._error) {
       throw new Error(`no metrics for ${sc.name}@${rung.pos}: ${metrics && metrics._error}`);
     }
     // Derived control: land fraction (land_cells is a raw count ∝ N).
     metrics.land_fraction = metrics.land_cells / (rung.approxN + 1);
 
-    // Advisory screenshot for the visual A/B grid (sidebar collapsed first).
-    await page.click('#sidebarToggle').catch(() => {});
-    await new Promise((r) => setTimeout(r, 800));
-    const canvas = await page.$('#canvas');
-    if (canvas) {
-      await canvas.screenshot({ path: path.join(SHOT_DIR, `${sc.name}_pos${rung.pos}.png`) }).catch(() => {});
+    if (shotName) {
+      // Advisory screenshot for the visual A/B grid (sidebar collapsed first).
+      await page.click('#sidebarToggle').catch(() => {});
+      await new Promise((r) => setTimeout(r, 800));
+      const canvas = await page.$('#canvas');
+      if (canvas) {
+        await canvas.screenshot({ path: path.join(SHOT_DIR, `${shotName}.png`) }).catch(() => {});
+      }
     }
     return metrics;
   } finally {
@@ -188,21 +251,71 @@ function divergence(values) {
   return (Math.max(...nums) - Math.min(...nums)) / (Math.abs(mean) + 1e-9);
 }
 
-async function main() {
-  const { server, port } = await startServer();
-  const browser = await puppeteer.launch({
+async function launchBrowser() {
+  return puppeteer.launch({
     headless: true,
+    // The synchronous fallback path blocks the main thread for the whole
+    // generation, so CDP calls (Runtime.callFunctionOn, etc.) need a long
+    // protocol timeout or they time out mid-generation.
+    protocolTimeout: 600_000,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--enable-webgl',
            '--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
   });
+}
 
-  const perSeed = {};
+async function verifyDeterminism(browser, baseUrl) {
+  const defaults = await readDefaultSliders(browser, baseUrl);
+  const rung = LADDER[0]; // fast rung, ~5K regions
+  const scDefault = SEEDS[0]; // seed 42, app-default erosion
+  const scOther = { name: 'seed999', seed: 999, glacial: null, hydraulic: null, thermal: null };
+
+  console.log(`Generating seed 42, run 1 @ slider ${rung.pos} (~${rung.approxN.toLocaleString()} regions)...`);
+  const run1 = await generateAndMeasure(browser, baseUrl, scDefault, rung, defaults);
+  console.log(`Generating seed 42, run 2 @ slider ${rung.pos} (~${rung.approxN.toLocaleString()} regions)...`);
+  const run2 = await generateAndMeasure(browser, baseUrl, scDefault, rung, defaults);
+  console.log(`Generating seed 999 @ slider ${rung.pos} (~${rung.approxN.toLocaleString()} regions)...`);
+  const run3 = await generateAndMeasure(browser, baseUrl, scOther, rung, defaults);
+
+  console.log('\n=== --verify-determinism ===');
+  console.log(`seed42 run1: land_cells=${run1.land_cells}  relief_headroom=${run1.relief_headroom}`);
+  console.log(`seed42 run2: land_cells=${run2.land_cells}  relief_headroom=${run2.relief_headroom}`);
+  console.log(`seed999:     land_cells=${run3.land_cells}  relief_headroom=${run3.relief_headroom}`);
+
+  const sameSeedReproducible = run1.land_cells === run2.land_cells && run1.relief_headroom === run2.relief_headroom;
+  const seedMatters = run1.land_cells !== run3.land_cells;
+
+  console.log(`\nSAME-SEED REPRODUCIBLE: ${sameSeedReproducible ? 'YES' : 'NO'} (run1 land_cells=${run1.land_cells} vs run2 land_cells=${run2.land_cells})`);
+  console.log(`SEED MATTERS:            ${seedMatters ? 'YES' : 'NO'} (seed42 land_cells=${run1.land_cells} vs seed999 land_cells=${run3.land_cells})`);
+
+  if (sameSeedReproducible && seedMatters) {
+    console.log('\nPASS: seed is under harness control.');
+    return true;
+  }
+  console.log('\nFAIL: seed is NOT under harness control.');
+  if (!sameSeedReproducible) console.log('  -> identical planet codes produced different metrics (non-determinism).');
+  if (!seedMatters) console.log('  -> different seeds produced identical metrics (seed not wired through).');
+  return false;
+}
+
+async function main() {
+  const { server, port } = await startServer();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const browser = await launchBrowser();
+
   try {
+    if (MODE === 'verify-determinism') {
+      const ok = await verifyDeterminism(browser, baseUrl);
+      if (!ok) process.exit(1);
+      return;
+    }
+
+    const defaults = await readDefaultSliders(browser, baseUrl);
+    const perSeed = {};
     for (const sc of SEEDS) {
       const rows = [];
       for (const rung of LADDER) {
         console.log(`Generating ${sc.name} @ slider ${rung.pos} (~${rung.approxN.toLocaleString()} regions)...`);
-        rows.push(await generateAndMeasure(browser, `http://127.0.0.1:${port}`, sc, rung));
+        rows.push(await generateAndMeasure(browser, baseUrl, sc, rung, defaults, `${sc.name}_pos${rung.pos}`));
       }
       // Divergence per metric key present in all rungs.
       const allKeys = new Set(rows.flatMap((r) => Object.keys(r)));
@@ -214,49 +327,49 @@ async function main() {
       }
       perSeed[sc.name] = { D, rows };
     }
+
+    const agg = (keys) => {
+      const vals = [];
+      for (const sc of SEEDS) {
+        for (const k of keys) {
+          const d = perSeed[sc.name].D[k];
+          if (Number.isFinite(d)) vals.push(d);
+        }
+      }
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    const gateAgg = agg(GATE_KEYS);
+    const controlAgg = agg(CONTROL_KEYS);
+
+    console.log('\n=== Divergence across the Detail ladder (0 = perfectly scale-invariant) ===');
+    for (const sc of SEEDS) {
+      console.log(`\n[${sc.name}]`);
+      for (const k of [...GATE_KEYS, ...CONTROL_KEYS]) {
+        const tag = GATE_KEYS.includes(k) ? 'GATE   ' : 'CONTROL';
+        console.log(`  ${tag} ${k}: ${perSeed[sc.name].D[k] ?? 'n/a'}`);
+      }
+    }
+    console.log(`\nGATE aggregate:    ${gateAgg?.toFixed(4)}`);
+    console.log(`CONTROL aggregate: ${controlAgg?.toFixed(4)} (noise floor)`);
+
+    if (MODE === 'baseline') {
+      fs.writeFileSync(BASELINE_PATH, JSON.stringify({ gateAgg, controlAgg, perSeed }, null, 2));
+      console.log(`\nBaseline written to ${path.relative(PROJECT_ROOT, BASELINE_PATH)}`);
+      return;
+    }
+
+    const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
+    console.log(`\nBaseline GATE aggregate: ${baseline.gateAgg?.toFixed(4)}  ->  current: ${gateAgg?.toFixed(4)}`);
+    const target = baseline.gateAgg * IMPROVE_FACTOR;
+    const pass = gateAgg <= target;
+    console.log(pass
+      ? `PASS: ${gateAgg.toFixed(4)} <= ${target.toFixed(4)} (${IMPROVE_FACTOR} x baseline)`
+      : `FAIL: ${gateAgg.toFixed(4)} > ${target.toFixed(4)} (${IMPROVE_FACTOR} x baseline)`);
+    if (MODE === 'check' && !pass) process.exit(1);
   } finally {
     await browser.close();
     server.close();
   }
-
-  const agg = (keys) => {
-    const vals = [];
-    for (const sc of SEEDS) {
-      for (const k of keys) {
-        const d = perSeed[sc.name].D[k];
-        if (Number.isFinite(d)) vals.push(d);
-      }
-    }
-    return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
-  };
-  const gateAgg = agg(GATE_KEYS);
-  const controlAgg = agg(CONTROL_KEYS);
-
-  console.log('\n=== Divergence across the Detail ladder (0 = perfectly scale-invariant) ===');
-  for (const sc of SEEDS) {
-    console.log(`\n[${sc.name}]`);
-    for (const k of [...GATE_KEYS, ...CONTROL_KEYS]) {
-      const tag = GATE_KEYS.includes(k) ? 'GATE   ' : 'CONTROL';
-      console.log(`  ${tag} ${k}: ${perSeed[sc.name].D[k] ?? 'n/a'}`);
-    }
-  }
-  console.log(`\nGATE aggregate:    ${gateAgg?.toFixed(4)}`);
-  console.log(`CONTROL aggregate: ${controlAgg?.toFixed(4)} (noise floor)`);
-
-  if (MODE === 'baseline') {
-    fs.writeFileSync(BASELINE_PATH, JSON.stringify({ gateAgg, controlAgg, perSeed }, null, 2));
-    console.log(`\nBaseline written to ${path.relative(PROJECT_ROOT, BASELINE_PATH)}`);
-    return;
-  }
-
-  const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
-  console.log(`\nBaseline GATE aggregate: ${baseline.gateAgg?.toFixed(4)}  ->  current: ${gateAgg?.toFixed(4)}`);
-  const target = baseline.gateAgg * IMPROVE_FACTOR;
-  const pass = gateAgg <= target;
-  console.log(pass
-    ? `PASS: ${gateAgg.toFixed(4)} <= ${target.toFixed(4)} (${IMPROVE_FACTOR} x baseline)`
-    : `FAIL: ${gateAgg.toFixed(4)} > ${target.toFixed(4)} (${IMPROVE_FACTOR} x baseline)`);
-  if (MODE === 'check' && !pass) process.exit(1);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
