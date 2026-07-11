@@ -23,24 +23,19 @@
  *              resolution — Richardson effect — so it must not gate).
  *
  * Seed control:
- *   In headless puppeteer the app's module Worker (generate.js) fails to
- *   construct, so generation always runs on the synchronous main-thread
- *   fallback (generateFallback). That path never reads Worker messages, so
- *   patching Worker.prototype.postMessage (the harness's original seed
- *   mechanism) never fires and every generation used
- *   `Math.floor(Math.random() * 16777216)` — the divergence numbers measured
- *   unrelated random worlds. Instead we drive the app's deterministic
- *   URL-hash planet-code path: encode seed + params with encodePlanetCode
- *   (js/planet-code.js, a pure function with no DOM access — safe to import
- *   directly here) and navigate to `${baseUrl}#${code}`. main.js decodes the
- *   hash, sets sliders, and calls generate(seed, ...) exactly once.
+ *   The harness's original seed mechanism (patching Worker.prototype.postMessage)
+ *   never fired, so every generation used `Math.floor(Math.random() * 16777216)`
+ *   — the divergence numbers measured unrelated random worlds. Instead we drive
+ *   the app's deterministic URL-hash planet-code path: encode seed + params with
+ *   encodePlanetCode (js/planet-code.js, a pure function with no DOM access —
+ *   safe to import directly here) and navigate to `${baseUrl}#${code}`. main.js
+ *   decodes the hash, sets sliders, and calls generate(seed, ...) exactly once.
  *
- *   The fallback path also never populates window.__terrainMetrics (that
- *   assignment only happens in the Worker's onmessage handler) — so after
- *   generation finishes we compute metrics in-page ourselves via a fresh
- *   dynamic import of js/terrain-metrics.js against the retained
- *   state.curData, mirroring exactly what planet-worker.js does. No js/
- *   files are modified; this only imports them.
+ *   The harness computes metrics in-page from state.curData via the canonical
+ *   computeTerrainMetrics, which is robust regardless of whether generation ran
+ *   on the worker or the synchronous fallback — so it works whether or not
+ *   window.__terrainMetrics ends up populated. No js/ files are modified; this
+ *   only imports them.
  */
 
 import http from 'node:http';
@@ -62,13 +57,16 @@ const MODE = process.argv.includes('--baseline') ? 'baseline'
            : process.argv.includes('--verify-determinism') ? 'verify-determinism'
            : 'report';
 
-// Regression tripwire, not an improvement gate. Investigation (SP2 Task 5)
-// found these scalar metrics do not isolate the erosion-intensity axis the
-// fixes correct — they are dominated by mesh-sampling effects (the pre-fix
-// GATE already sat below the CONTROL noise floor) — and that generation is
-// mildly non-deterministic run-to-run. So --check only flags a GROSS
-// divergence blowup: current must stay within 1.5x the recorded baseline.
-const IMPROVE_FACTOR = 1.5;
+// First trustworthy measurement (2026-07-11, deterministic seed control via
+// URL-hash planet codes): pre-fix GATE aggregate 0.2723 vs post-fix 0.2327,
+// ratio 0.855 — the SP2 fixes measurably reduced cross-resolution GATE
+// divergence. IMPROVE_FACTOR = ceil(ratio * 10) / 10 = 0.9 with a small
+// margin: current must stay at or below 0.9x the recorded (pre-fix)
+// baseline, i.e. within reach of the post-fix improvement rather than
+// drifting back toward the old, worse behavior. This is a real regression
+// gate, not a loose tripwire, now that both post-fix runs reproduced
+// byte-for-byte identical metrics.
+const IMPROVE_FACTOR = 0.9;
 
 // Relative divergence (max-min)/|mean| is only meaningful when the metric's
 // mean is well clear of zero. A near-zero-mean quantity — e.g.
@@ -202,10 +200,9 @@ async function generateAndMeasure(browser, baseUrl, sc, rung, defaults, shotName
       { timeout: 600_000, polling: 250 },
     );
 
-    // Compute metrics in-page: the synchronous fallback (which headless
-    // puppeteer always takes — see module docstring) never populates
-    // window.__terrainMetrics, so we call computeTerrainMetrics ourselves
-    // against the retained state.curData, exactly as planet-worker.js does.
+    // Compute metrics in-page from the retained state.curData via the
+    // canonical computeTerrainMetrics — see module docstring. This works
+    // regardless of whether generation ran on the worker or the fallback.
     const metrics = await page.evaluate(async () => {
       const { state } = await import('/js/state.js');
       const { computeTerrainMetrics } = await import('/js/terrain-metrics.js');
