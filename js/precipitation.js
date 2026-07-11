@@ -203,7 +203,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
         r_eastX, r_eastY, r_eastZ,
         r_northX, r_northY, r_northZ } = windResult;
 
-    // Scale-dependent hop count: PRECIP_ADVECT_REACH_KM (default 3961 km), currently clamped to 20 hops (see SP2/SP3).
+    // Scale-dependent hop count: PRECIP_ADVECT_REACH_KM (default 2001 km), clamped to CLIMATE.PRECIP_ADVECT_MAX_HOPS (default 60) hops (see SP3a-2).
     // Average edge length ≈ π / sqrt(numRegions) radians ≈ (π * 6371) / sqrt(N) km
     // hops ≈ 2000 / edgeLengthKm
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
