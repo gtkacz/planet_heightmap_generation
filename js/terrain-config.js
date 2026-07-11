@@ -24,7 +24,8 @@ export const STRESS_DIR_BLEND_PARENT = 0.8;
 export const STRESS_DIR_BLEND_TRAVEL = 0.2;
 // Scale-invariant smoothing targets (SP2). Physical distances chosen so the
 // default Detail (~204K regions, avgEdgeKm ≈ 44.3 km) reproduces the previous
-// fixed pass counts (3 / 2 / 3) exactly.
+// fixed pass counts exactly — in declaration order below: stress-dir 2,
+// plate-smooth 3, soil-creep 3 (round(88/44.3)=2, round(133/44.3)=3, round(133/44.3)=3).
 export const STRESS_DIR_SMOOTH_KM = 88;
 export const PLATE_SMOOTH_HIRES_KM = 133;
 export const SOIL_CREEP_KM = 133;

@@ -77,8 +77,11 @@ const IMPROVE_FACTOR = 0.9;
 const MIN_MEAN_MAGNITUDE = 0.05;
 
 // Detail ladder: slider positions -> ~5K / 31K / 100K / 299K / 801K regions.
-// All below AUTO_CLIMATE_THRESHOLD; climate is skipped via skipClimate anyway.
 // The 801K rung exercises the >300K range where the SP2 fixes actually bite.
+// Climate skipping is the app's own per-rung decision (shouldSkipClimate,
+// gated on AUTO_CLIMATE_THRESHOLD=300K): it runs for the <300K rungs and is
+// skipped for 801K. Either way it is orthogonal to the terrain GATE metrics
+// (computed from elevation before climate), so it affects only runtime.
 const LADDER = [
   { pos: 0,   approxN: 5000 },
   { pos: 400, approxN: 31000 },
