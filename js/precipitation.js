@@ -580,7 +580,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             dnOff[numRegions] = dnCount;
 
             // --- Pass 1: Propagate shadow DOWNWIND (PRECIP_RS_SHADOW_PROP_KM, default 3363 km; 15% survives) ---
-            const shadowHops = Math.max(8, Math.round(CLIMATE.PRECIP_RS_SHADOW_PROP_KM / avgEdgeKm));
+            const shadowHops = Math.max(8, Math.min(CLIMATE.PRECIP_RS_MAX_HOPS, Math.round(CLIMATE.PRECIP_RS_SHADOW_PROP_KM / avgEdgeKm)));
             const shadowDecay = 1 - Math.pow(0.15, 1 / shadowHops);
             const shadowField = new Float32Array(rainShadow);
             // Reusable ping-pong buffers for both shadow and windward passes
@@ -608,7 +608,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             }
 
             // --- Pass 2: Propagate windward rain UPWIND (~1500 km, 25% survives) ---
-            const windwardHops = Math.max(6, Math.round(1500 / avgEdgeKm));
+            const windwardHops = Math.max(6, Math.min(CLIMATE.PRECIP_RS_WINDWARD_MAX_HOPS, Math.round(1500 / avgEdgeKm)));
             const windwardDecay = 1 - Math.pow(0.25, 1 / windwardHops);
             const windwardField = new Float32Array(rainShadow);
             // Reuse ping-pong buffers from shadow pass

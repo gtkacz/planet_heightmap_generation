@@ -88,6 +88,8 @@ export const CLIMATE_DEFAULTS = Object.freeze({
     PRECIP_RS_APPLY_STRENGTH_SCALE: 2.4002, // propagated shadow → suppression multiplier
     PRECIP_RS_APPLY_MAX_SUPPRESS: 0.9782,   // max suppression in propagated shadow
     PRECIP_RS_APPLY_WINDWARD_ADD: 1.7675,    // additive windward boost from propagated field
+    PRECIP_RS_MAX_HOPS: 60,                 // ceiling on downwind shadow hops (bounds O(N^1.5) cost above ~40k regions; > the 34-hop tuning-resolution value so 40k is unaffected)
+    PRECIP_RS_WINDWARD_MAX_HOPS: 30,        // ceiling on upwind windward hops (> the 15-hop tuning-resolution value)
 
     // ── Precipitation: subtropical high / Mediterranean / monsoon ──
     PRECIP_SUBTROP_CENTER_SUMMER_DEG: 37.738, // suppression band center in local summer
