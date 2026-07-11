@@ -895,8 +895,6 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
     const riftNoise = new SimplexNoise(seed + 419);
 
     const eps = 1e-3;
-    const warpScale = WARP_SCALE;
-    const warpOctaves = numRegions > 200000 ? 2 : 3;
 
     for (let r = 0; r < numRegions; r++) {
         const isOceanPlate = r_isOcean[r];
@@ -917,11 +915,6 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
             r_elevation[r] = (1/a - 1/b) / (1/a + 1/b + 1/c) * BASE_SCALE;
         }
         dl_base[r] = r_elevation[r];
-
-        // Domain-warped coordinates (re-used by feature noise below; stage 5 recomputes)
-        const wx = x + warpScale * noise.fbm(x + 5.3, y + 1.7, z + 3.1, warpOctaves);
-        const wy = y + warpScale * noise.fbm(x + 8.1, y + 2.9, z + 7.3, warpOctaves);
-        const wz = z + warpScale * noise.fbm(x + 1.4, y + 6.2, z + 4.8, warpOctaves);
 
         // Orogenic power (used by stress uplift formula)
         const rawOro = noise.noise3D(x * OROGENIC_FREQ + 33.7, y * OROGENIC_FREQ + 11.2, z * OROGENIC_FREQ + 22.9);
