@@ -3,7 +3,7 @@
 
 import Delaunator from 'delaunator';
 import { setDelaunator, SphereMesh } from './sphere-mesh.js';
-import { computePlateColors, buildMesh } from './planet-mesh.js';
+import { computePlateColors, buildMesh, updateMeshColors } from './planet-mesh.js';
 import { state } from './state.js';
 import { detailFromSlider } from './detail-scale.js';
 import { computeOceanCurrents } from './ocean.js';
@@ -669,7 +669,7 @@ if (worker) {
                     }
                 }
                 state.climateComputed = true;
-                buildMesh();
+                updateMeshColors();
 
                 const f = v => typeof v === 'number' ? v.toFixed(1) : v;
                 const ct = msg._climateTiming || {};
