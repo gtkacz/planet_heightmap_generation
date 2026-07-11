@@ -22,7 +22,12 @@ export const STRESS_DIR_FACTOR_BASE = 0.3;
 export const STRESS_DIR_FACTOR_SCALE = 0.7;
 export const STRESS_DIR_BLEND_PARENT = 0.8;
 export const STRESS_DIR_BLEND_TRAVEL = 0.2;
-export const STRESS_DIR_SMOOTH_PASSES = 2;
+// Scale-invariant smoothing targets (SP2). Physical distances chosen so the
+// default Detail (~204K regions, avgEdgeKm ≈ 44.3 km) reproduces the previous
+// fixed pass counts (3 / 2 / 3) exactly.
+export const STRESS_DIR_SMOOTH_KM = 88;
+export const PLATE_SMOOTH_HIRES_KM = 133;
+export const SOIL_CREEP_KM = 133;
 export const STRESS_DIR_SELF_WEIGHT = 2;
 
 export const STRESS_DECAY_BASE = 0.5;
