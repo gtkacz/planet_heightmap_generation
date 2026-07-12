@@ -10,3 +10,5 @@ tuning/climate/maps/
 
 tuning/regress-baseline.json
 tuning/regress-screenshots/
+tuning/scale-invariance-baseline.json
+tuning/scale-invariance-screenshots/
