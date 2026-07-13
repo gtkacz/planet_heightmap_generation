@@ -253,6 +253,10 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
         effSubtropCenterWinter = mid + (effSubtropCenterWinter - mid) * seasonFactor;
     }
 
+    const effOroUpliftAdd = CLIMATE.PRECIP_ORO_UPLIFT_ADD * orographicRain;
+    const effRsStrengthScale = CLIMATE.PRECIP_RS_APPLY_STRENGTH_SCALE * orographicRain;
+    const effRsWindwardAdd = CLIMATE.PRECIP_RS_APPLY_WINDWARD_ADD * orographicRain;
+
     const seasons = [
         { name: 'summer', shift: 5 },
         { name: 'winter', shift: -5 }
@@ -370,7 +374,7 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
                     // the wind is pushing up, the more rain wrung out.
                     // gradient strength matters more than absolute height.
                     const uplift = Math.min(1, windDotGrad * 15);
-                    p += uplift * CLIMATE.PRECIP_ORO_UPLIFT_ADD;
+                    p += uplift * effOroUpliftAdd;
                 } else {
                     // Leeward: rain shadow. The advection step already depleted
                     // moisture crossing the ridge; this is the *extra* suppression
@@ -664,11 +668,11 @@ export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, ocean
             const rs = rainShadow[r];
             if (rs < -0.01) {
                 // Shadow zone: precipitation suppression behind mountains
-                const strength = Math.min(1, -rs * CLIMATE.PRECIP_RS_APPLY_STRENGTH_SCALE);
+                const strength = Math.min(1, -rs * effRsStrengthScale);
                 precip[r] *= Math.max(0.02, 1 - strength * CLIMATE.PRECIP_RS_APPLY_MAX_SUPPRESS);
             } else if (rs > 0.01) {
                 // Windward zone: strong orographic precipitation enhancement
-                precip[r] += rs * CLIMATE.PRECIP_RS_APPLY_WINDWARD_ADD;
+                precip[r] += rs * effRsWindwardAdd;
             }
         }
 

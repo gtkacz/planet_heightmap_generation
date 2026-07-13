@@ -795,11 +795,14 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
 
     // Pre-compute constants shared across seasons
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
-    const oceanWarmthPasses = Math.max(4, Math.round(CLIMATE.TEMP_OCEAN_WARMTH_DIFFUSE_KM / avgEdgeKm));
+    const oceanWarmthPasses = Math.max(4, Math.round(CLIMATE.TEMP_OCEAN_WARMTH_DIFFUSE_KM * maritimeInfluence / avgEdgeKm));
     const plateCont = r_plateContinentality || r_continentality;
     // Winter interior cooling is a seasonal-contrast effect: it must vanish on
     // a seasonless (0-tilt) world along with the swing itself.
-    const effContWinterCool = CLIMATE.TEMP_CONT_WINTER_COOL_C * seasonFactor;
+    const effContWinterCool = CLIMATE.TEMP_CONT_WINTER_COOL_C * winterSeverity * seasonFactor;
+    const effCoastalShiftC = CLIMATE.TEMP_COASTAL_WARMTH_SHIFT_C * maritimeInfluence;
+    const effMoistLapse = CLIMATE.TEMP_MOIST_LAPSE_C_PER_KM * mountainChill;
+    const effDryLapseExtra = CLIMATE.TEMP_DRY_LAPSE_EXTRA_C_PER_KM * mountainChill;
     // Greenhouse: thicker atmosphere warms uniformly, flattens the equator→pole
     // gradient (polar amplification), and softens winters slightly.
     const effPolewardRange = CLIMATE.TEMP_POLEWARD_RANGE_C * (1 - CLIMATE.TEMP_GH_GRADIENT_FRAC * greenhouse);
@@ -882,7 +885,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             // saturated air at ~5 C/km (moist adiabatic) due to latent heat
             // release. Use precipitation as a moisture proxy to interpolate.
             const moisture = r_precip ? r_precip[r] : 0.5;
-            const lapse = CLIMATE.TEMP_MOIST_LAPSE_C_PER_KM + CLIMATE.TEMP_DRY_LAPSE_EXTRA_C_PER_KM * (1 - moisture); // 4.5 C/km (wet) to 9.3 C/km (dry)
+            const lapse = effMoistLapse + effDryLapseExtra * (1 - moisture); // 4.5 C/km (wet) to 9.3 C/km (dry)
             if (isLand && elev > 0) {
                 T -= lapse * elevToHeightKm(elev);
             }
@@ -899,7 +902,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 // crosses continental shelves naturally
                 const cw = coastalWarmth[r];
                 if (Math.abs(cw) > 0.001) {
-                    T += cw * (1 - smoothstep(0, 0.95, pCont)) * CLIMATE.TEMP_COASTAL_WARMTH_SHIFT_C;
+                    T += cw * (1 - smoothstep(0, 0.95, pCont)) * effCoastalShiftC;
                 }
             }
 
