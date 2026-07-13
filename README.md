@@ -127,7 +127,7 @@ Climate simulation (wind, ocean currents, precipitation, temperature, Köppen cl
   - **Terrain** — elevation color ramp from deep ocean through sea level to mountain peaks
   - **Satellite** — realistic biome colors based on Köppen climate classification and elevation (lush green rainforests, tan deserts, white ice caps, dark taiga, gray tundra), with ocean using the standard terrain palette. High elevations blend toward snow white based on climate-aware snow lines.
   - **Climate** — Köppen-Geiger classification with color swatches for all 30 climate types
-  - **Trewartha** — Trewartha climate classification, a parallel scheme to Köppen computed from the same seasonal temperature/precipitation data, with color swatches for all 16 classes (Ocean plus 15 land types)
+  - **Trewartha** — Trewartha climate classification, a parallel scheme to Köppen computed from the same seasonal temperature/precipitation data, with color swatches for all 15 land classes
   - **Heightmap** — black-to-white gradient on a fixed absolute scale (-5 km ocean floor to 6 km peaks), so the same physical height always maps to the same shade
 - **View** dropdown — switch between Globe and Map (equirectangular projection)
 - **Center Longitude** slider (map mode only) — shifts the map projection's central meridian to any longitude from 180°W to 180°E, scrolling the equirectangular projection so the chosen longitude is centered. Exports are unaffected (always centered on 0°).
