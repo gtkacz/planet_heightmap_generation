@@ -259,8 +259,9 @@ export function computeOceanCurrents(mesh, r_xyz, r_elevation, windResult, userC
     ];
 
     for (const { name, itczLookup } of seasons) {
-        // Seasonal shift: wind cells migrate ~5° toward summer hemisphere
-        const seasonalShiftDeg = name === 'summer' ? 5 : -5;
+        // Wind cells migrate toward the summer hemisphere; the migration is a
+        // seasonal effect so it scales with tilt (0 at 0°).
+        const seasonalShiftDeg = (name === 'summer' ? 5 : -5) * seasonFactor;
 
         // Steps 3–4: Wind band classification + current vectors
         t0 = performance.now();

@@ -797,6 +797,9 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
     const oceanWarmthPasses = Math.max(4, Math.round(CLIMATE.TEMP_OCEAN_WARMTH_DIFFUSE_KM / avgEdgeKm));
     const plateCont = r_plateContinentality || r_continentality;
+    // Winter interior cooling is a seasonal-contrast effect: it must vanish on
+    // a seasonless (0-tilt) world along with the swing itself.
+    const effContWinterCool = CLIMATE.TEMP_CONT_WINTER_COOL_C * seasonFactor;
 
     // Compute zone-based temperature continentality (Stages A-E)
     const tCont0 = performance.now();
@@ -859,7 +862,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             const T_itcz = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tItcz, CLIMATE.TEMP_POLEWARD_EXP);
 
             // Flat reference curve (ITCZ at 5° in summer hemisphere)
-            const flatItczLat = (name === 'summer' ? 5 : -5) * DEG;
+            const flatItczLat = (name === 'summer' ? 5 : -5) * DEG * seasonFactor;
             const distFlat = Math.abs(lat - flatItczLat) / DEG;
             const tFlat = Math.max(0, distFlat - tropicalHW) / maxDist;
             const T_flat = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tFlat, CLIMATE.TEMP_POLEWARD_EXP);
@@ -925,7 +928,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 const distAnn = Math.abs(lat) / DEG;
 
                 const tc = isLand ? r_tempCont[r] : 0;
-                const tableAmplitude = lookupSwingAmplitude(distAnn, tc);
+                const tableAmplitude = lookupSwingAmplitude(distAnn, tc) * seasonFactor;
 
                 // Estimate ITCZ seasonal contribution
                 const sumItczLat = itczLookupSummer(lon);
@@ -967,7 +970,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                     const westRelief = r_westness
                         ? 1 - Math.max(0, r_westness[r]) * CLIMATE.TEMP_WINTER_COOL_WEST_RELIEF
                         : 1;
-                    T -= cont * CLIMATE.TEMP_CONT_WINTER_COOL_C * westRelief;
+                    T -= cont * effContWinterCool * westRelief;
                 }
 
                 // Oceanic warming offset: ocean thermal inertia keeps oceanic
