@@ -484,6 +484,15 @@ export const EROSION_REF_REGIONS = 204000;
 // ── Thermal Erosion (terrain-post.js) ──
 export const THERMAL_TRANSFER_FRAC = 0.5;
 
+// ── Lithology-driven erosion (terrain-post.js) ──
+// Per-cell erodibility from the classifier's craton/basin weights: cratons
+// resist erosion, basins erode fast. 0 strength = exactly today's behavior.
+export const LITHO_EROSION_STRENGTH = 1.0;
+export const LITHO_CRATON_RESIST = 0.6;
+export const LITHO_BASIN_SOFTEN = 0.35;
+export const LITHO_HARDNESS_MIN = 0.55;
+export const LITHO_HARDNESS_MAX = 2.2;
+
 // ── Ridge Sharpening (terrain-post.js) ──
 export const RIDGE_SHARPEN_CAP = 2.0;
 export const VALLEY_DEEPEN_FACTOR = 0.5;

@@ -17,7 +17,7 @@ import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
 import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
-import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM } from './terrain-config.js';
+import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX } from './terrain-config.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -55,6 +55,21 @@ function computeDetailDampenField(debugLayers) {
     return r_dampen;
 }
 
+// Inverse hardness (1 = neutral) multiplying erosion rates. Null when
+// geological annotations are absent (heightmap imports) or the feature is off.
+function computeErodibilityField(debugLayers) {
+    const cw = debugLayers && debugLayers.cratonWeight;
+    const bw = debugLayers && debugLayers.basinWeight;
+    if (!cw || !bw || LITHO_EROSION_STRENGTH <= 0) return null;
+    const N = cw.length;
+    const out = new Float32Array(N);
+    for (let r = 0; r < N; r++) {
+        const h = 1 + LITHO_EROSION_STRENGTH * (LITHO_CRATON_RESIST * cw[r] - LITHO_BASIN_SOFTEN * bw[r]);
+        out[r] = 1 / Math.min(LITHO_HARDNESS_MAX, Math.max(LITHO_HARDNESS_MIN, h));
+    }
+    return out;
+}
+
 // Orogenic power as a [0, 1] amplitude multiplier for detail noise.
 // debugLayers.orogenicPower is stored as raw_oroPower − 0.5 (for diverging
 // colormap), so we add 0.5 and clamp to recover the [0, 1] factor.
@@ -71,7 +86,7 @@ function computeOrogenicField(debugLayers) {
 }
 
 // Run terrain post-processing with per-step timing
-function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot, r_dampen, r_orogenic) {
+function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot, r_dampen, r_orogenic, r_erodibility) {
     const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp } = params;
     const timing = [];
 
@@ -135,7 +150,7 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
             hIters, hK, 0.5, 1.0,
             tIters, talusSlope, kThermal,
             gIters, glacialErosion,
-            neighborDist);
+            neighborDist, r_erodibility ?? null);
         timing.push({ stage: `Erosion composite (h=${hIters}, t=${tIters}, g=${gIters})`, ms: performance.now() - t0 });
     }
 
@@ -326,10 +341,11 @@ function handleGenerate(data) {
         const prePostElev = new Float32Array(r_elevation);
         const r_dampen = computeDetailDampenField(debugLayers);
         const r_orogenic = computeOrogenicField(debugLayers);
+        const r_erodibility = computeErodibilityField(debugLayers);
 
         progress(60, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
         timing.push({ stage: 'Terrain post-processing (total)', ms: performance.now() - t0 });
         debugLayers.erosionDelta = dl_erosionDelta;
 
@@ -430,6 +446,7 @@ function handleGenerate(data) {
             // generate over craton/basin and orogenic regions.
             r_dampen: r_dampen ? new Float32Array(r_dampen) : null,
             r_orogenic: r_orogenic ? new Float32Array(r_orogenic) : null,
+            r_erodibility: r_erodibility ? new Float32Array(r_erodibility) : null,
             // Retain coarse-plate data so editRecompute can rebuild super
             // plates with the same detail-independent adjacency graph.
             coarseMesh, coarse_r_plate: new Int32Array(coarse_r_plate),
@@ -522,7 +539,7 @@ function handleReapply(data) {
 
         progress(20, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed, undefined, W.r_dampen, W.r_orogenic);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed, undefined, W.r_dampen, W.r_orogenic, W.r_erodibility);
         const tPost = performance.now() - t0;
 
         // Update retained final elevation for deferred climate
@@ -657,12 +674,14 @@ function handleEditRecompute(data) {
         const prePostElev = new Float32Array(r_elevation);
         const r_dampen = computeDetailDampenField(debugLayers);
         const r_orogenic = computeOrogenicField(debugLayers);
+        const r_erodibility = computeErodibilityField(debugLayers);
         W.r_dampen = r_dampen ? new Float32Array(r_dampen) : null;
         W.r_orogenic = r_orogenic ? new Float32Array(r_orogenic) : null;
+        W.r_erodibility = r_erodibility ? new Float32Array(r_erodibility) : null;
 
         progress(50, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot, r_dampen, r_orogenic);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
         const tPost = performance.now() - t0;
         debugLayers.erosionDelta = dl_erosionDelta;
 

@@ -401,7 +401,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     hIters, K, m, dt,
     tIters, talusSlope, kThermal,
     gIters, glacialStrength,
-    neighborDist)
+    neighborDist, r_erodibility)
 {
     gIters = gIters || 0;
     glacialStrength = glacialStrength || 0;
@@ -654,7 +654,8 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                 const target = drainTarget[r];
                 if (target < 0 || cellDist[r] <= 0) continue;
 
-                const factor = K * Math.pow(flow[r] * flowScale, m) * dt / cellDist[r];
+                const erod = r_erodibility ? r_erodibility[r] : 1;
+                const factor = K * erod * Math.pow(flow[r] * flowScale, m) * dt / cellDist[r];
                 const h_receiver = Math.max(r_elevation[target], 0);
                 let h_new = (r_elevation[r] + factor * h_receiver) / (1 + factor);
 
@@ -719,7 +720,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                     totalSlopeWeighted += excVal[k] * excSlope[k];
                 }
 
-                const transfer = kThermal * totalExcess * THERMAL_TRANSFER_FRAC;
+                const transfer = kThermal * (r_erodibility ? r_erodibility[r] : 1) * totalExcess * THERMAL_TRANSFER_FRAC;
                 if (totalSlopeWeighted > 0) {
                     for (let k = 0; k < excCount; k++) {
                         const share = (excVal[k] * excSlope[k] / totalSlopeWeighted) * transfer;

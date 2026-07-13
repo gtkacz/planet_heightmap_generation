@@ -11,7 +11,7 @@ import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
-import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM } from './terrain-config.js';
+import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX } from './terrain-config.js';
 
 // Main thread still needs Delaunator for SphereMesh reconstruction
 setDelaunator(Delaunator);
@@ -826,8 +826,20 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 dampenField: r_dampen, dampenStrength: 0.5,
                 amplitudeField: r_orogenic,
             });
+            // Per-cell erodibility from craton/basin weights (cratons resist, basins soften) —
+            // mirrors computeErodibilityField() in planet-worker.js for the no-worker path.
+            let r_erodibility = null;
+            if (debugLayers.cratonWeight && debugLayers.basinWeight && LITHO_EROSION_STRENGTH > 0) {
+                r_erodibility = new Float32Array(ctx.mesh.numRegions);
+                for (let r = 0; r < ctx.mesh.numRegions; r++) {
+                    const h = 1 + LITHO_EROSION_STRENGTH * (LITHO_CRATON_RESIST * debugLayers.cratonWeight[r] - LITHO_BASIN_SOFTEN * debugLayers.basinWeight[r]);
+                    r_erodibility[r] = 1 / Math.min(LITHO_HARDNESS_MAX, Math.max(LITHO_HARDNESS_MIN, h));
+                }
+            }
             if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0)
-                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion);
+                // neighborDist arg (unchanged from prior behavior): this fallback path never
+                // computed it, so it stays undefined here — r_erodibility is the new trailing arg.
+                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, undefined, r_erodibility);
             if (ridgeSharpening > 0) m.post.sharpenRidges(ctx.mesh, r_elevation, r_isOcean, Math.round(1 + ridgeSharpening * 3), ridgeSharpening * 0.08);
             const creepPasses = Math.max(1, Math.round(SOIL_CREEP_KM / ((Math.PI * 6371) / Math.sqrt(ctx.mesh.numRegions))));
             m.post.applySoilCreep(ctx.mesh, r_elevation, r_isOcean, creepPasses, 0.1125);
