@@ -10,6 +10,7 @@ import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
+import { classifyTrewartha } from './trewartha.js';
 import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM } from './terrain-config.js';
 
 // Main thread still needs Delaunator for SphereMesh reconstruction
@@ -306,6 +307,9 @@ if (worker) {
                         state.curData.r_temperature_summer && state.curData.r_precip_summer) {
                         const d = state.curData;
                         d.debugLayers.koppen = classifyKoppen(mesh, d.r_elevation,
+                            { r_temperature_summer: d.r_temperature_summer, r_temperature_winter: d.r_temperature_winter },
+                            { r_precip_summer: d.r_precip_summer, r_precip_winter: d.r_precip_winter });
+                        d.debugLayers.trewartha = classifyTrewartha(mesh, d.r_elevation,
                             { r_temperature_summer: d.r_temperature_summer, r_temperature_winter: d.r_temperature_winter },
                             { r_precip_summer: d.r_precip_summer, r_precip_winter: d.r_precip_winter });
                     }
@@ -842,6 +846,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 debugLayers.tempWinter = tempResult.r_temperature_winter;
                 debugLayers.tempContinentality = tempResult.r_tempContinentality;
                 debugLayers.koppen = classifyKoppen(ctx.mesh, r_elevation, tempResult, precipResult);
+                debugLayers.trewartha = classifyTrewartha(ctx.mesh, r_elevation, tempResult, precipResult);
             }
             const t_elevation = new Float32Array(ctx.mesh.numTriangles);
             for (let t = 0; t < ctx.mesh.numTriangles; t++) {

@@ -14,6 +14,7 @@ import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
+import { classifyTrewartha } from './trewartha.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
 import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
 import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM } from './terrain-config.js';
@@ -377,6 +378,7 @@ function handleGenerate(data) {
 
             t0 = performance.now();
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
+            debugLayers.trewartha = classifyTrewartha(mesh, r_elevation, tempResult, precipResult);
             timing.push({ stage: 'Köppen classification', ms: performance.now() - t0 });
         }
 
@@ -559,7 +561,8 @@ function handleReapply(data) {
                 tempWinter: tempResult.r_temperature_winter,
                 cloudSummer: tempResult.r_cloud_summer,
                 cloudWinter: tempResult.r_cloud_winter,
-                koppen: classifyKoppen(W.mesh, r_elevation, tempResult, precipResult)
+                koppen: classifyKoppen(W.mesh, r_elevation, tempResult, precipResult),
+                trewartha: classifyTrewartha(W.mesh, r_elevation, tempResult, precipResult)
             } : null,
             _reapplyTiming: {
                 clone: tClone,
@@ -666,6 +669,7 @@ function handleEditRecompute(data) {
             debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
+            debugLayers.trewartha = classifyTrewartha(mesh, r_elevation, tempResult, precipResult);
 
             W.cachedWind = windResult;
             W.cachedOcean = oceanResult;
@@ -768,6 +772,7 @@ function handleComputeClimate(data) {
         progress(88, 'Classifying climates\u2026');
         t0 = performance.now();
         const koppen = classifyKoppen(mesh, r_elevation_final, tempResult, precipResult);
+        const trewartha = classifyTrewartha(mesh, r_elevation_final, tempResult, precipResult);
         const tKoppen = performance.now() - t0;
 
         const tWorkerTotal = performance.now() - tTotal0;
@@ -786,7 +791,8 @@ function handleComputeClimate(data) {
             tempWinter: tempResult.r_temperature_winter,
             cloudSummer: tempResult.r_cloud_summer,
             cloudWinter: tempResult.r_cloud_winter,
-            koppen
+            koppen,
+            trewartha
         };
 
         progress(95, 'Done');
@@ -1027,6 +1033,7 @@ function handleImportHeightmap(data) {
 
             t0 = performance.now();
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
+            debugLayers.trewartha = classifyTrewartha(mesh, r_elevation, tempResult, precipResult);
             timing.push({ stage: 'Köppen classification', ms: performance.now() - t0 });
         }
 

@@ -6,6 +6,7 @@ import { state } from './state.js';
 import { elevationToColor, elevToHeightKm, biomeColor, cloudColor } from './color-map.js';
 import { makeRng } from './rng.js';
 import { KOPPEN_CLASSES } from './koppen.js';
+import { TREWARTHA_CLASSES } from './trewartha.js';
 
 // Clipping planes for map wrap — keep everything within x ∈ [-2, 2]
 renderer.localClippingEnabled = true;
@@ -330,11 +331,13 @@ export function buildMapMesh() {
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
+    const isTrewartha = debugLayer === 'trewartha';
+    const trewarthaArr = isTrewartha ? (debugLayers && debugLayers.trewartha) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isTrewartha && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -391,6 +394,9 @@ export function buildMapMesh() {
                 [cr, cg, cb] = tempContinentalityColor(tempContArr[br]);
             } else if (isKoppen && koppenArr) {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
+            } else if (isTrewartha && trewarthaArr) {
+                const c = TREWARTHA_CLASSES[trewarthaArr[br]].color;
+                cr = c[0]; cg = c[1]; cb = c[2];
             } else if (isTemp && tempArr) {
                 [cr, cg, cb] = temperatureColor(tempArr[br]);
             } else if (isCloud && cloudArr) {
@@ -769,11 +775,13 @@ export function buildMesh() {
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
+    const isTrewartha = debugLayer === 'trewartha';
+    const trewarthaArr = isTrewartha ? (debugLayers && debugLayers.trewartha) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isTrewartha && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -860,6 +868,9 @@ export function buildMesh() {
                 [cr, cg, cb] = tempContinentalityColor(tempContArr[br]);
             } else if (isKoppen && koppenArr) {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
+            } else if (isTrewartha && trewarthaArr) {
+                const c = TREWARTHA_CLASSES[trewarthaArr[br]].color;
+                cr = c[0]; cg = c[1]; cb = c[2];
             } else if (isTemp && tempArr) {
                 [cr, cg, cb] = temperatureColor(tempArr[br]);
             } else if (isCloud && cloudArr) {
@@ -1013,11 +1024,13 @@ export function updateMeshColors() {
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
+    const isTrewartha = debugLayer === 'trewartha';
+    const trewarthaArr = isTrewartha ? (debugLayers && debugLayers.trewartha) : null;
     const isCont = debugLayer === 'continentality';
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isTrewartha && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -1034,6 +1047,7 @@ export function updateMeshColors() {
         if (isCont && contArr) return continentalityColor(contArr[br]);
         if (isTempCont && tempContArr) return tempContinentalityColor(tempContArr[br]);
         if (isKoppen && koppenArr) return koppenColor(koppenArr[br]);
+        if (isTrewartha && trewarthaArr) { const c = TREWARTHA_CLASSES[trewarthaArr[br]].color; return [c[0], c[1], c[2]]; }
         if (isTemp && tempArr) return temperatureColor(tempArr[br]);
         if (isCloud && cloudArr) return cloudColor(cloudArr[br]);
         if (isPrecip && precipArr) return precipitationColor(precipArr[br]);

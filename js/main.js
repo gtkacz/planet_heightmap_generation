@@ -11,6 +11,7 @@ import { buildMesh, updateMeshColors, updateSuperPlateBorders, buildMapMesh, reb
 import { setupEditMode } from './edit-mode.js';
 import { detailFromSlider, sliderFromDetail } from './detail-scale.js';
 import { KOPPEN_CLASSES } from './koppen.js';
+import { TREWARTHA_CLASSES } from './trewartha.js';
 import { elevationToColor } from './color-map.js';
 
 // Slider value displays + stale tracking
@@ -202,7 +203,7 @@ const CLIMATE_LAYERS = new Set([
     'rainShadowSummer', 'rainShadowWinter',
     'tempSummer', 'tempWinter',
     'cloudSummer', 'cloudWinter',
-    'koppen', 'biome', 'continentality'
+    'koppen', 'trewartha', 'biome', 'continentality'
 ]);
 
 // Map tabs → tab-layer mapping
@@ -382,6 +383,42 @@ function updateLegend(layer) {
                 state.hoveredKoppen = -1;
                 updateKoppenHoverHighlight();
                 updateMapKoppenHoverHighlight();
+            });
+        });
+    } else if (layer === 'trewartha') {
+        // Trewartha legend — swatches + tooltips only; ids don't map onto
+        // debugLayers.koppen, so no mesh hover-highlight wiring here.
+        let html = '<div class="legend-koppen-header"><a href="https://en.wikipedia.org/wiki/Trewartha_climate_classification" target="_blank" rel="noopener">Trewartha climate classification</a></div>';
+        html += '<div class="legend-koppen">';
+        for (let i = 1; i < TREWARTHA_CLASSES.length; i++) {
+            const k = TREWARTHA_CLASSES[i];
+            const [r, g, b] = k.color;
+            const hex = `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;
+            html += `<div class="legend-koppen-item" data-code="${k.code}"><span class="legend-koppen-swatch" style="background:${hex}"></span>${k.code}</div>`;
+        }
+        html += '<div class="legend-koppen-tooltip" id="trewarthaTip"></div>';
+        html += '</div>';
+        vizLegend.innerHTML = html;
+        // Wire hover tooltips with dynamic positioning (no mesh highlight)
+        const tipEl = document.getElementById('trewarthaTip');
+        const container = vizLegend.querySelector('.legend-koppen');
+        vizLegend.querySelectorAll('.legend-koppen-item').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                const code = item.dataset.code;
+                const k = TREWARTHA_CLASSES.find(c => c.code === code);
+                tipEl.textContent = k ? k.name : '';
+                tipEl.classList.add('visible');
+                // Position above the hovered item, clamped within the container
+                const itemRect = item.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const tipWidth = 240;
+                let left = itemRect.left - containerRect.left + itemRect.width / 2 - tipWidth / 2;
+                left = Math.max(0, Math.min(left, containerRect.width - tipWidth));
+                tipEl.style.left = left + 'px';
+                tipEl.style.bottom = (containerRect.bottom - itemRect.top + 6) + 'px';
+            });
+            item.addEventListener('mouseleave', () => {
+                tipEl.classList.remove('visible');
             });
         });
     } else if (layer === 'biome') {
