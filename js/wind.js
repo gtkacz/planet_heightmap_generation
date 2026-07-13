@@ -538,9 +538,10 @@ function pressureToWind(r_gradE, r_gradN, r_sinLat,
  * @param {Int32Array} r_plate - per-region plate ID
  * @param {SimplexNoise} noise - seeded noise instance
  * @param {number} [axialTilt=23.5] - axial tilt in degrees
+ * @param {number} [rotationRate=1] - rotation rate multiplier (unused here; consumed by ocean.js)
  * @returns {object} pressure and wind arrays for both seasons
  */
-export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noise, axialTilt = 23.5) {
+export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noise, axialTilt = 23.5, rotationRate = 1) {
     const numRegions = mesh.numRegions;
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
     const tiltRad = axialTilt * DEG;

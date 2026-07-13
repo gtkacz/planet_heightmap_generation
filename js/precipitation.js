@@ -194,7 +194,8 @@ function advectMoisture(mesh, r_xyz, r_heightKm, r_isLand,
  * @param {object} oceanResult - output from computeOceanCurrents()
  * @returns {{ r_precip_summer, r_precip_winter }} normalized 0–1 arrays
  */
-export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, oceanResult, precipitationOffset = 0, landCoverage = 0.3) {
+export function computePrecipitation(mesh, r_xyz, r_elevation, windResult, oceanResult, precipitationOffset = 0, landCoverage = 0.3, userClimate = {}) {
+    const { orographicRain = 1, seasonFactor = 1 } = userClimate;
     console.log('[precipitation.js] computePrecipitation called, numRegions:', mesh.numRegions);
     const numRegions = mesh.numRegions;
     const timing = [];

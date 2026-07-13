@@ -204,7 +204,8 @@ function smoothOcean(mesh, field, r_isOcean, passes) {
  * @param {object} windResult - output from computeWind() (includes lat, lon, sinLat, isLand, tangent frames, ITCZ arrays)
  * @returns {object} current vectors, warmth, and speed arrays for both seasons
  */
-export function computeOceanCurrents(mesh, r_xyz, r_elevation, windResult) {
+export function computeOceanCurrents(mesh, r_xyz, r_elevation, windResult, userClimate = {}) {
+    const { rotationRate = 1, seasonFactor = 1 } = userClimate;
     console.log('[ocean.js] computeOceanCurrents called, numRegions:', mesh.numRegions);
     const numRegions = mesh.numRegions;
     const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
