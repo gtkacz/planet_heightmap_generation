@@ -29,9 +29,9 @@ TREWARTHA_CLASSES.forEach((c, i) => { ID[c.code] = i; });
 
 // Fraction of the year a sinusoid with this mean/amplitude spends ≥ 10 °C.
 function monthsAbove10(Tann, Tamp) {
-    if (Tann - Tamp >= 10) return 12;
-    if (Tann + Tamp < 10) return 0;
-    if (Tamp <= 0) return Tann >= 10 ? 12 : 0;
+    if (Tann - Tamp >= 10) { return 12; }
+    if (Tann + Tamp < 10) { return 0; }
+    if (Tamp <= 0) { return Tann >= 10 ? 12 : 0; }
     return (12 / Math.PI) * Math.acos((10 - Tann) / Tamp);
 }
 

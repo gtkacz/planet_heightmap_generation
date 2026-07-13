@@ -801,7 +801,7 @@ export function computeRiverGraph(mesh, r_elevation) {
     const { adjOffset, adjList } = mesh;
     const land = [];
     for (let r = 0; r < N; r++) {
-        if (r_elevation[r] > 0) land.push(r);
+        if (r_elevation[r] > 0) { land.push(r); }
     }
     land.sort((a, b) => r_elevation[b] - r_elevation[a]);
     const drainTarget = new Int32Array(N).fill(-1);
