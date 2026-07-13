@@ -81,6 +81,7 @@ import {
     RIDGE_HALF_WIDTH_BASE as RIDGE_HW_BASE, RIDGE_UPLIFT_NOISE, RIDGE_UPLIFT_BASE,
     FRACTURE_HALF_WIDTH_BASE, FRACTURE_DEPTH,
     TRENCH_BASE_DEPTH, TRENCH_STRESS_DEPTH,
+    TRENCH_HALF_WIDTH_BASE, TRENCH_OUTER_RISE_EXTENT, TRENCH_OUTER_RISE_HEIGHT,
     COAST_ROUGHEN_BASE, COAST_PASSIVE_FREQ, COAST_ACTIVE_FREQ,
     COAST_PASSIVE_AMP, COAST_ACTIVE_AMP,
     COAST_WARP_PASSIVE_REACH, COAST_WARP_ACTIVE_REACH, COAST_WARP_AMT,
@@ -768,6 +769,37 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, su
         }
     }
 
+    // Trench band (ocean side of convergent boundaries) — carries seed stress
+    // outward like the back-arc band so off-axis cells scale with convergence.
+    const trenchHW = Math.max(2, Math.round(TRENCH_HALF_WIDTH_BASE * scaleFactor));
+    const trenchOuterEnd = Math.max(trenchHW + 1, Math.round(trenchHW * TRENCH_OUTER_RISE_EXTENT));
+    const trenchDist = new Float32Array(numRegions).fill(Infinity);
+    const trenchStress = new Float32Array(numRegions);
+    const trenchSeeds = [];
+    for (let r = 0; r < numRegions; r++) {
+        if (r_boundaryType[r] === 1 && r_isOcean[r]) {
+            trenchSeeds.push(r);
+            trenchDist[r] = 0;
+            trenchStress[r] = Math.min(1, r_stress[r] / maxStress);
+        }
+    }
+    {
+        let qi = 0;
+        while (qi < trenchSeeds.length) {
+            const r = trenchSeeds[qi++];
+            const nd = trenchDist[r] + 1;
+            if (nd > trenchOuterEnd) continue;
+            for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
+                const nr = adjList[ni];
+                if (nd < trenchDist[nr] && r_isOcean[nr]) {
+                    trenchDist[nr] = nd;
+                    trenchStress[nr] = trenchStress[r];
+                    trenchSeeds.push(nr);
+                }
+            }
+        }
+    }
+
     return {
         r_isOcean,
         dist_mountain, dist_ocean, dist_coastline, dist_coast, dist_coast_land,
@@ -776,6 +808,7 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, su
         ridgeDist, ridgeHalfWidth,
         fractureDist, fractureHalfWidth,
         backArcDist, backArcStress, baStart, baPeak, baEnd,
+        trenchDist, trenchStress, trenchHW, trenchOuterEnd,
         interiorBand:    Math.max(4, Math.round(INTERIOR_BAND_BASE * scaleFactor)),
         tectonicReach:   Math.max(6, Math.round(TECTONIC_REACH_BASE * scaleFactor)),
         plateauStart:    Math.max(2, Math.round(PLATEAU_START_BASE * scaleFactor)),
@@ -873,12 +906,13 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
     const dl_backArc    = debugLayers.backArc;
     const dl_orogenicPower = debugLayers.orogenicPower;
 
-    const { r_subductFactor, r_stress, r_boundaryType, r_hasOcean, r_bothOcean, maxStress, scaleFactor } = tect;
+    const { r_subductFactor, r_stress, r_hasOcean, r_bothOcean, maxStress, scaleFactor } = tect;
     const { r_isOcean, dist_mountain, dist_ocean, dist_coastline, dist_coast, dist_coast_land,
             dBdry, coastConvergent, maxCD,
             riftDist, riftHalfWidth, ridgeDist, ridgeHalfWidth,
             fractureDist, fractureHalfWidth,
             backArcDist, backArcStress, baStart, baPeak, baEnd,
+            trenchDist, trenchStress, trenchHW, trenchOuterEnd,
             interiorBand, tectonicReach, plateauStart,
             ridgeSigmaBase, ridgePeakShift, ridgeExtent } = sf;
     const { r_basinFactor, r_tectonicActivity, r_t_plateau } = tt;
@@ -907,7 +941,6 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
         const isOceanPlate = r_isOcean[r];
         const sf_r = r_subductFactor[r];
         const stressNorm = Math.min(1, r_stress[r] / maxStress);
-        const btype = r_boundaryType[r];
         const x = r_xyz[3*r], y = r_xyz[3*r+1], z = r_xyz[3*r+2];
 
         // Distance-ratio base
@@ -1202,9 +1235,21 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
                 r_elevation[r] -= FRACTURE_DEPTH * fractureFade;
             }
 
-            // Trench
-            if (btype === 1) {
-                r_elevation[r] -= TRENCH_BASE_DEPTH + TRENCH_STRESS_DEPTH * stressNorm;
+            // Trench: deepest at the subduction axis, tapering over the
+            // half-width, with a subtle outer-rise bulge beyond — replaces
+            // the old footprint-less flat subtraction at boundary cells.
+            {
+                const td = trenchDist[r];
+                if (td !== Infinity) {
+                    if (td <= trenchHW) {
+                        const tT = td / trenchHW;
+                        const axisFade = (1 - tT) * (1 - tT);
+                        r_elevation[r] -= (TRENCH_BASE_DEPTH + TRENCH_STRESS_DEPTH * trenchStress[r]) * axisFade;
+                    } else if (td <= trenchOuterEnd) {
+                        const oT = (td - trenchHW) / Math.max(1, trenchOuterEnd - trenchHW);
+                        r_elevation[r] += TRENCH_OUTER_RISE_HEIGHT * Math.sin(Math.PI * oT) * trenchStress[r];
+                    }
+                }
             }
 
             // Back-arc basin (ocean side)

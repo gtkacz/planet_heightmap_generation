@@ -302,6 +302,11 @@ export const FRACTURE_HALF_WIDTH_BASE = 3;
 export const FRACTURE_DEPTH = 0.03;
 export const TRENCH_BASE_DEPTH = 0.20;
 export const TRENCH_STRESS_DEPTH = 0.20;
+// Trench spatial profile: half-width band (hops × scaleFactor, like the
+// sibling bands) with an outer-rise bulge beyond the axis taper.
+export const TRENCH_HALF_WIDTH_BASE = 2.5;
+export const TRENCH_OUTER_RISE_EXTENT = 2.5;   // × half-width
+export const TRENCH_OUTER_RISE_HEIGHT = 0.02;
 
 // ── Coastal Roughening ──
 export const COAST_ROUGHEN_BASE = 8;
