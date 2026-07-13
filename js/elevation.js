@@ -77,6 +77,7 @@ import {
     SHELF_NARROW_BASE, SHELF_WIDE_BASE, SLOPE_WIDTH_BASE,
     SHELF_DEPTH_START, SHELF_DEPTH_RANGE, SLOPE_DEPTH_RANGE,
     ABYSS_BASE, ABYSS_NOISE_AMP, OCEAN_FLOOR_CLAMP,
+    RIDGE_AGE_DEPTH_SCALE, RIDGE_AGE_SATURATION_KM, RIDGE_AGE_MEAN_FRAC,
     RIDGE_HALF_WIDTH_BASE as RIDGE_HW_BASE, RIDGE_UPLIFT_NOISE, RIDGE_UPLIFT_BASE,
     FRACTURE_HALF_WIDTH_BASE, FRACTURE_DEPTH,
     TRENCH_BASE_DEPTH, TRENCH_STRESS_DEPTH,
@@ -860,6 +861,9 @@ function classifyTerrain(mesh, r_xyz, tect, sf, seed) {
 function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, tect, sf, tt, noise, noiseMag, seed, debugLayers) {
     const { numRegions } = mesh;
     const r_elevation = new Float32Array(numRegions);
+    // Physical km per cell hop — lets ridge-age bathymetry use a real
+    // saturation distance instead of a resolution-dependent hop count.
+    const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(numRegions);
     const dl_base       = debugLayers.base;
     const dl_tectonic   = debugLayers.tectonic;
     const dl_interior   = debugLayers.interior;
@@ -1222,6 +1226,18 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
                     r_elevation[r] += baEffect;
                     dl_backArc[r] = baEffect;
                 }
+            }
+
+            // Half-space cooling: floor subsides ∝ √(distance from ridge),
+            // gated to beyond the continental margin so shelf/slope shape is
+            // untouched. Centered on MEAN_FRAC to keep mean abyssal depth.
+            if (RIDGE_AGE_DEPTH_SCALE > 0) {
+                const rdAge = ridgeDist[r];
+                const ageFrac = rdAge === Infinity
+                    ? 1
+                    : Math.min(1, Math.sqrt((rdAge * avgEdgeKm) / RIDGE_AGE_SATURATION_KM));
+                const beyondMargin = Math.min(1, Math.max(0, (dc - totalMargin) / slopeWidth));
+                r_elevation[r] -= RIDGE_AGE_DEPTH_SCALE * (ageFrac - RIDGE_AGE_MEAN_FRAC) * beyondMargin;
             }
 
             dl_tectonic[r] = r_elevation[r] - elevBeforeOcTec;

@@ -286,6 +286,14 @@ export const ABYSS_BASE = -0.35;
 export const ABYSS_NOISE_AMP = 0.03;
 export const OCEAN_FLOOR_CLAMP = -0.005;
 
+// ── Ridge-age bathymetry (half-space cooling) ──
+// Sea floor deepens ∝ √age away from spreading ridges, flattening past the
+// saturation distance (~80 Myr analog). MEAN_FRAC centers the term so mean
+// abyssal depth is preserved (young floor rises, old floor sinks). 0 = off.
+export const RIDGE_AGE_DEPTH_SCALE = 0.10;
+export const RIDGE_AGE_SATURATION_KM = 5000;
+export const RIDGE_AGE_MEAN_FRAC = 0.75;
+
 // ── Mid-Ocean Features ──
 export const RIDGE_HALF_WIDTH_BASE = 4;
 export const RIDGE_UPLIFT_NOISE = 0.12;
