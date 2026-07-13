@@ -25,6 +25,15 @@ const sliderIds = ['sN','sP','sCn','sJ','sNs','sCsv','sLc','sHs'];
 const PLATE_SLIDERS = ['sP', 'sCn', 'sCsv', 'sLc'];
 let lastGenValues = {};
 
+// Runtime-only experimental flags. They are intentionally read from the DOM
+// at each operation and never enter planet-code encoding or persisted state.
+function terrainLabFlags() {
+    return [
+        !!document.getElementById('ffMorenoise')?.checked,
+        !!document.getElementById('ffRunevision')?.checked,
+    ];
+}
+
 function snapshotSliders() {
     for (const id of sliderIds) lastGenValues[id] = document.getElementById(id).value;
 }
@@ -48,12 +57,12 @@ function checkStale() {
 }
 
 // Reapply smoothing + erosion without full rebuild (via worker)
-function reapplyPostProcessing() {
+function reapplyPostProcessing(onComplete = null) {
     const d = state.curData;
-    if (!d || !d.prePostElev) return;
+    if (!d || !d.prePostElev) { onComplete?.(); return; }
 
     const skipClimate = shouldSkipClimate();
-    reapplyViaWorker(() => {
+    const finish = () => {
         reapplyBtn.classList.remove('spinning');
         updatePlanetCode(false);
         // If climate invalidated and viewing a climate layer, switch to Terrain
@@ -64,7 +73,17 @@ function reapplyPostProcessing() {
             updateMeshColors();
             updateLegend('');
         }
-    }, skipClimate);
+        onComplete?.();
+    };
+    const started = reapplyViaWorker(finish, skipClimate, ...terrainLabFlags());
+    if (started === false) {
+        // The synchronous fallback has no retained worker state to reapply.
+        // Rebuild the same deterministic world so Visual Options checkboxes
+        // still apply immediately in browsers without module-worker support.
+        document.getElementById('generate').addEventListener('generate-done', finish, { once: true });
+        generate(d.seed, getToggledIndices(), onProgress, skipClimate,
+            getMotionOverrideRecords(), ...terrainLabFlags());
+    }
 }
 
 const reapplyBtn = document.getElementById('reapplyBtn');
@@ -84,6 +103,34 @@ reapplyBtn.addEventListener('click', () => {
     clearReapplyPending();
     reapplyBtn.classList.add('spinning');
     reapplyPostProcessing();
+});
+
+let terrainLabApplyInFlight = false;
+let terrainLabApplyQueued = false;
+
+function applyTerrainLabOptions() {
+    terrainLabApplyQueued = true;
+    const generateBtn = document.getElementById('generate');
+    if (terrainLabApplyInFlight || generateBtn.disabled || !state.curData?.prePostElev) {
+        markReapplyPending();
+        return;
+    }
+
+    terrainLabApplyQueued = false;
+    terrainLabApplyInFlight = true;
+    clearReapplyPending();
+    reapplyBtn.classList.add('spinning');
+    reapplyPostProcessing(() => {
+        terrainLabApplyInFlight = false;
+        if (terrainLabApplyQueued) applyTerrainLabOptions();
+    });
+}
+
+for (const id of ['ffMorenoise', 'ffRunevision']) {
+    document.getElementById(id)?.addEventListener('change', applyTerrainLabOptions);
+}
+document.getElementById('generate')?.addEventListener('generate-done', () => {
+    if (terrainLabApplyQueued && !terrainLabApplyInFlight) applyTerrainLabOptions();
 });
 
 // Auto Climate checkbox — default OFF above threshold
@@ -524,7 +571,7 @@ genBtn.addEventListener('click', () => {
     const seed = isRebuild ? state.curData.seed : undefined;
     const toggles = isRebuild ? getToggledIndices() : [];
     const motionOverrides = isRebuild ? getMotionOverrideRecords() : [];
-    generate(seed, toggles, onProgress, shouldSkipClimate(), motionOverrides);
+    generate(seed, toggles, onProgress, shouldSkipClimate(), motionOverrides, ...terrainLabFlags());
 });
 genBtn.addEventListener('generate-done', snapshotSliders);
 genBtn.addEventListener('generate-done', hideBuildOverlay);
@@ -704,7 +751,7 @@ function applyCode(code) {
     state.pendingToggles.clear();
     document.getElementById('rebuildFab').style.display = 'none';
     showBuildOverlay();
-    generate(params.seed, params.toggledIndices, onProgress, shouldSkipClimate(), params.motionOverrides);
+    generate(params.seed, params.toggledIndices, onProgress, shouldSkipClimate(), params.motionOverrides, ...terrainLabFlags());
 }
 
 loadBtn.addEventListener('click', () => {
@@ -1018,7 +1065,7 @@ setupEditMode();
             hoverEl.style.display = 'none';
             refreshPlateMotionEditor();
             document.dispatchEvent(new CustomEvent('plates-edited'));
-        }, skipClimate);
+        }, skipClimate, ...terrainLabFlags());
     });
 
     // Escape clears all pending edits
@@ -1211,7 +1258,7 @@ sidebarToggle.addEventListener('click', () => {
             if (isMobileLayout()) uiPanel.classList.add('collapsed');
             clearReapplyPending();
             showBuildOverlay();
-            generate(undefined, [], onProgress, shouldSkipClimate());
+            generate(undefined, [], onProgress, shouldSkipClimate(), [], ...terrainLabFlags());
         }
     });
 })();
@@ -1515,8 +1562,8 @@ if (hashParams) {
         el.value = val;
         el.dispatchEvent(new Event('input'));
     }
-    generate(hashParams.seed, hashParams.toggledIndices, onProgress, shouldSkipClimate(), hashParams.motionOverrides);
+    generate(hashParams.seed, hashParams.toggledIndices, onProgress, shouldSkipClimate(), hashParams.motionOverrides, ...terrainLabFlags());
 } else {
-    generate(undefined, [], onProgress, shouldSkipClimate());
+    generate(undefined, [], onProgress, shouldSkipClimate(), [], ...terrainLabFlags());
 }
 animate();

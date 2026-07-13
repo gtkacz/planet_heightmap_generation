@@ -1,122 +1,108 @@
-# Task Plan: SP6 Editable Plate Motion
+# Task Plan: Planet Heightmap Development
 
 ## Goal
-Implement SP6 end to end: user-editable plate direction and speed with desktop/mobile parity, deterministic rebuilds, planet-code persistence, documentation, and verification.
+Analyze the current planet-heightmap application for evidence-backed performance improvements, with special attention to compute-heavy areas that may benefit from Rust/WASM, without changing implementation behavior in this task.
 
 ## Current Phase
 Phase 10
 
 ## Phases
 
-### Phase 1: Requirements, discovery, and design
-- [x] Confirm the user-facing interaction model
-- [x] Audit all state, worker, rendering, encoding, and documentation touchpoints
-- [x] Write the SP6 design specification
+### Phase 1: Repository audit and compatibility baseline
+- [x] Trace detail noise, post-processing order, worker/fallback data flow, Reapply, Edit Recompute, debug layers, UI, and tests
+- [x] Identify the exact baseline regression and scale/performance harnesses
+- [x] Record compatibility-sensitive call sites and buffer-transfer contracts
 - **Status:** complete
 
-### Phase 2: Implementation plan and test strategy
-- [x] Decompose the design into reviewable implementation tasks
-- [x] Define pure-function and integration regression coverage
-- [x] Write the SP6 implementation plan
+### Phase 2: Simplex derivatives and Morenoise
+- [x] Add derivative sampler and erosive FBM without per-cell allocation
+- [x] Add `fbmMode` detail-noise plumbing for both L1 and L2 passes
+- [x] Add analytical derivative/value compatibility tests
 - **Status:** complete
 
-### Phase 3: Motion model, worker state, and persistence
-- [x] Add deterministic plate-motion helpers and baseline/override state
-- [x] Apply overrides after automatic physics on generate and edit-recompute
-- [x] Extend planet-code encoding/decoding compatibly
-- [x] Add focused automated tests
+### Phase 3: Runevision erosion
+- [x] Implement immutable-input gradient estimation and seeded seamless directional cells
+- [x] Implement coastal/depth/hotspot/orogenic safeguards and raw-height inversion
+- [x] Add synthetic-field continuity, directionality, iteration-order, and determinism tests
 - **Status:** complete
 
-### Phase 4: Editing UI and visualization
-- [x] Add the unified Land/Sea and Motion edit palette
-- [x] Render plate-motion arrows in globe and map views
-- [x] Implement plate selection, direction dragging, speed control, reset, batching, and cancellation
-- [x] Preserve existing Ctrl-click and mobile workflows
+### Phase 4: Pipeline, state, and transfer integration
+- [x] Thread default-off flags through Generate, Reapply, Edit Recompute, worker, and fallback
+- [x] Enforce the required post-processing order and non-compounding behavior
+- [x] Return, attach, replace, clear, and transfer experimental debug buffers
+- [x] Keep planet codes/import persistence unchanged
 - **Status:** complete
 
-### Phase 5: Documentation and verification
-- [x] Update README, tutorial, What's New, and UI hints
-- [x] Run syntax, unit, regression, and browser-level checks available in the repository
-- [x] Review diff for unrelated changes and mobile accessibility requirements
+### Phase 5: Hidden Terrain Lab UI and inspection
+- [x] Add query-gated controls and Reapply activation behavior
+- [x] Add query-gated Inspect entries for all three experimental layers
+- [x] Exercise all four flag combinations through browser integration
 - **Status:** complete
 
-### Phase 6: Delivery
-- [x] Confirm all success criteria and record final test results
-- [x] Summarize files changed, behavior, and any residual risks
+### Phase 6: Regression, scale, and performance verification
+- [x] Run focused unit/syntax/browser tests and workspace checks
+- [x] Prove flag-off byte compatibility and deterministic/non-compounding behavior
+- [x] Run available regression and scale-invariance cases at requested sizes
+- [x] Measure 299K timing/allocation guardrails where the harness supports it
 - **Status:** complete
 
-### Phase 7: Branch and ancestry audit
-- [x] Identify the original upstream repository and its current default-branch tip
-- [x] Prove which local commits belong to SP1, SP2, and SP3
-- [x] Confirm SP6 is uncommitted on local `main` and enumerate its intended file set
+### Phase 7: Architecture and workload inventory
+- [x] Inventory runtime entry points, worker boundaries, data sizes, build tooling, and existing benchmarks
+- [x] Identify major loops, allocation/copy sites, and synchronous fallbacks
+- [x] Preserve unrelated working-tree changes
 - **Status:** complete
 
-### Phase 8: Isolated SP6 worktree
-- [x] Create a dedicated branch/worktree directly from the upstream base
-- [x] Transfer only the SP6 runtime, UI, documentation, and tests that are valid on that base
-- [x] Confirm the branch contains no SP1, SP2, or SP3 commits or unrelated files
+### Phase 8: Evidence and bottleneck analysis
+- [x] Mine existing timing artifacts and benchmark harnesses
+- [x] Run representative local measurements where practical
+- [x] Separate compute cost from serialization, transfer, rendering, and startup cost
 - **Status:** complete
 
-### Phase 9: Isolated verification and commit
-- [x] Run syntax, focused unit, browser, and relevant regression checks in the worktree
-- [x] Review the staged diff and commit only the isolated SP6 implementation
+### Phase 9: Rust/WASM suitability assessment
+- [x] Rank candidates by expected speedup, integration cost, determinism risk, and boundary overhead
+- [x] Compare Rust/WASM against lower-cost JavaScript and WebGPU/worker improvements
+- [x] Sketch an incremental migration architecture and measurement gates
 - **Status:** complete
 
-### Phase 10: Push and upstream pull request
-- [x] Push the SP6 branch to the fork remote
-- [x] Open a pull request against the original upstream repository
-- [x] Verify the PR base, head, commits, and file list
-- [x] Leave local `main`'s SP6 working changes intact and report final state
+### Phase 10: Deliverable
+- [x] Produce a concise, prioritized analysis with evidence, tradeoffs, and open questions
+- [x] Record the analysis in repository findings/progress artifacts
 - **Status:** complete
 
-## Key Questions
-1. What representation keeps edits independent of render Detail and stable in planet codes?
-2. How should automatic physics, land/ocean toggles, and user overrides compose deterministically?
-3. How can pointer dragging work consistently in globe and equirectangular map views without interfering with OrbitControls?
-4. What compact suffix format preserves all existing planet codes?
-
-## Decisions Made
+## Decisions
 | Decision | Rationale |
 |----------|-----------|
-| Use a centroid-anchored direction arrow plus a separate speed slider | Directly expresses the desired plate motion and remains controllable on touch devices. |
-| Reuse the pencil control as a unified `Land/Sea \| Motion` palette | Fits the existing floating-control vocabulary and preserves mobile parity. |
-| Preserve desktop Ctrl-click as the existing land/ocean shortcut | Avoids regressing the established editing workflow. |
-| Batch motion edits through the existing Rebuild action | Avoids recomputing terrain on every pointer movement and supports multi-plate edits. |
-| Apply user motion overrides after automatic plate physics | Makes the displayed direction authoritative and predictable. |
-| Rebuild automatic motion from an immutable generated baseline before applying overrides | Prevents cumulative physics mutation and makes interactive edits match planet-code reloads. |
-| Persist `{bearingDeg, speedPercent}` per stable coarse plate index | Captures the user-facing intent compactly, stays Detail-independent, and can be deterministically converted to Euler pole/omega. |
-| Extend codes with `~` plus fixed six-character motion records | Keeps every existing base/toggle code valid and makes parsing unambiguous. |
-| Use a DOM drag handle over a Three.js arrow overlay | Provides a reliable 44px touch target without expensive mesh raycasting or OrbitControls conflicts. |
-| Base the PR branch directly on the original upstream default branch | Guarantees SP1–SP3 history is not inherited; only explicitly transferred SP6 changes can enter the PR. |
-| Keep local `main`'s current SP6 working changes untouched | Matches the user's explicit permission for SP6 to remain on local `main` while moving the PR commit to an isolated worktree. |
+| Both features default to `false` at every boundary | Preserves existing callers and output. |
+| Experimental layers are nullable and replaced atomically on Reapply | Prevents stale inspection data and compounding. |
+| Flags remain runtime-only UI/worker parameters | The requested experiments must not affect planet-code compatibility or imports. |
+| Do not spawn sub-agents | Workspace instructions prohibit delegation unless explicitly requested. |
+| Treat this turn as analysis-only | The user asked to analyze and brainstorm, not to implement performance changes. |
+| Evaluate WASM at coarse pipeline boundaries | Per-element JS/WASM crossings and memory copies can erase compute gains. |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| Combined implementation-plan patch failed because a later `Current Phase` hunk appeared after earlier context in the patch | 1 | Split file creation and status updates into separate patches with current exact context. |
-| Local `node` rejected `--experimental-default-type=module` | 1 | Check runtime versions and switch the test command to a supported ESM path rather than retrying the flag. |
-| Dev server could not bind inside the filesystem/process sandbox (`listen EPERM`) | 1 | Re-ran the same local-only server with approved escalation; it is running on port 8765. |
-| Browser smoke expected exactly 5,000 mesh regions but `buildSphere(5000)` adds the explicit pole region | 1 | Correct the assertion to the generator's 5,001-region contract and rerun; worker state had loaded successfully. |
-| Motion suffix decoded correctly but startup dropped records before calling `generate()` | 1 | Thread records through startup/manual-load/Detail-rebuild calls and current-code encoding. |
-| Browser smoke's second `page.goto()` changed only the hash, so the SPA did not reload | 2 | Add a cache-busting query parameter to force a new document for each code-load case. |
-| Browser smoke compared signed legacy omega values instead of angular-speed magnitude | 3 | Compare absolute omega magnitudes; canonical user overrides may flip pole/sign while preserving identical angular motion. |
-| Editor smoke could not click the Motion palette button after opening the pencil | 1 | Inspect computed visibility/layout and CSS cascade before retrying; do not bypass the UI interaction in the test. |
-| Full editor workflow passed through map switching, then mobile palette target measured below 44px | 2 | Capture the exact computed mobile layout before changing CSS so the fix addresses the real cascade/layout cause. |
-| Puppeteer mobile emulation flags reloaded the page, making all editor controls correctly hidden at measurement time | 3 | Resize to the 390px CSS breakpoint without changing `isMobile`/`hasTouch`; test touch initialization separately if needed. |
-| Combined `git rev-parse --short main origin/main` ancestry check rejected multiple revisions | 1 | Query refs separately; adjacent successful output already confirmed both local refs point to `b0ef46a`. |
-| First branch-audit planning patch referenced an error row in the wrong planning file | 1 | Split the update by file and use exact existing context; no partial change was applied. |
-| Adding the `upstream` remote failed because the managed sandbox exposes `.git/config` read-only | 1 | Re-ran the exact scoped command with user-approved elevated Git-remote permission; the remote was added successfully. |
-| Creating the new linked worktree failed because branch refs under `.git` are read-only in the default sandbox | 1 | Re-ran the exact scoped `git worktree add` command with approval; it completed successfully. |
-| Combined post-worktree planning patch placed a later `task_plan.md` hunk before an earlier one | 1 | Reordered the hunks in file order; no partial change was applied. |
-| Clean-base patch check rejected `js/generate.js` and `js/planet-worker.js` because intervening proposal commits changed their context | 1 | Exclude those files from the bulk apply and port only their SP6 behavior manually against upstream. |
-| Python's local HTTP server could not bind in the default sandbox | 1 | Re-ran the local-only server with scoped approval on port 8766. |
-| Puppeteer could not launch Chromium because crashpad socket setup was sandbox-blocked | 1 | Re-ran the exact browser smoke with scoped approval; it passed, followed by the editor smoke. |
-| Golden-master harness generated all cases but observed `undefined` arrays | 1 | Its state-capture hook belongs to SP1 and is absent upstream; adapt only the external harness copy to import `state.js` directly and rerun. |
-| Local golden-master baseline differed in all arrays after the capture fix | 2 | The ignored baseline was generated from fork-current SP1–SP3 code and was never committed; build a fresh pristine-upstream reference for a valid SP6 comparison. |
-| Staged whitespace gate found extra blank lines at EOF in two new files | 1 | Removed the blank lines, restaged the files, and reran the staged check successfully. |
-| Initial pull-request creation could not connect to GitHub from the default sandbox | 1 | Re-ran the scoped `gh pr create` command with approved network access; PR #58 was created. |
+| Runevision article direct scrape returned navigation but no article body | 1 | Search indexed code/source mirrors for the distinctive formula names; keep the supplied implementation plan authoritative. |
+| Firecrawl targeted searches exhausted account credits | 1 | Used the available primary-source search index for the author article and stopped further Firecrawl requests. |
+| Direct open of the Blogger/Shadertoy pages returned cache/safety errors | 1 | Used the search index's primary article body and known public Shadertoy identifier; no further page interaction is required. |
+| Central-difference derivative test sampled an exact simplex rank boundary | 1 | Shifted the test point by 0.003 so the finite difference stays within one differentiable tetrahedron; retained separate value-compatibility coverage. |
+| Combined worker integration patch missed the edit-state field ordering | 1 | Split Generate, Reapply, and Edit Recompute into exact-context patches; no partial change occurred. |
+| Combined main-thread flag patch missed the exact Edit Recompute callback context | 1 | Applied the runtime helper, generate calls, and edit callback in separate exact-context patches. |
+| Import retained-state patch initially added a duplicate `r_hotspot` to Generate | 1 | Removed the misplaced null field and added it to the heightmap-import retained state with a more specific context. |
+| First Terrain Lab browser run used a pre-climate-extension planet-code argument list | 1 | Added deposition, rebound, hotspots, and the seven current climate defaults before rerunning. |
+| Browser sandbox blocked Chromium crashpad socket setup | 1 | Re-ran the scoped Terrain Lab browser harness with approved Chromium permission. |
+| Browser harness assumed planet-code startup left Reapply disabled | 1 | Reset the button immediately before the checkbox assertion so the test isolates the checkbox change contract from existing startup slider events. |
+| 5K browser case correctly skipped Runevision's 400 km octave under the 2.5-edge resolution gate | 1 | Raised the integration case to the requested ~31K rung, where the base octave is resolvable and should visibly change terrain. |
+| No-Worker fallback's second 31K synchronous generation exceeded the browser harness timeout | 1 | Kept worker/combinations at 31K and isolated fallback API plumbing at 5K; Runevision's independent synthetic suite already validates active octave behavior. |
+| In-page `generate-done` promise did not resolve for a second synchronous fallback generation | 2 | Switched the fallback test to the public disabled/enabled button lifecycle and captured console/page errors separately. |
+| Fallback lifecycle wait raced module startup and returned while `state.curData` was still null | 3 | Require both an enabled button and non-null shared generation state in the browser wait helper. |
+| Isolated fallback diagnostic exposed the legacy undefined-distance composite-erosion failure | 1 | Reuse Runevision's distances for classic erosion only in the Runevision-enabled branch; preserve the exact legacy undefined argument when the flag is off. |
+| Full scale harness could not bind its local server inside the filesystem sandbox | 1 | Re-ran the repository harness with scoped approval for its local listener and Chromium. |
+| Existing `planet-code-motion.test.js` uses the obsolete pre-climate-extension encoder signature | 1 | Recorded as a pre-existing test-fixture failure; current planet-code behavior is covered by the golden master and Terrain Lab browser test without altering unrelated SP6 fixtures. |
+| Local performance profiler could not bind `127.0.0.1` inside the filesystem sandbox (`EPERM`) | 1 | Re-run the same read-only browser profile with scoped permission for its local listener and Chromium. |
 
 ## Notes
-- Preserve all unrelated user-owned/untracked work, especially the proposal and existing `docs/` content.
 - Follow `/home/gtkacz/.codex/RTK.md`: prefix shell commands with `rtk`.
-- Do not spawn sub-agents; current instructions prohibit delegation unless explicitly requested.
+- Preserve unrelated user changes and avoid destructive Git operations.
+- Re-read this plan before major implementation decisions.
+- Ideas introduced during the requested brainstorm will be marked as AI suggestions; measured repository facts will be identified separately.

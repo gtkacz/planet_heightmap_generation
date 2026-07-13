@@ -9,6 +9,7 @@ import { smoothAndReconnectPlates } from './plates.js';
 import { assignElevation } from './elevation.js';
 import { buildSuperPlates } from './super-plates.js';
 import { warpTerrain, smoothElevation, erodeComposite, applyIsostaticRebound, sharpenRidges, applySoilCreep, applyDetailNoise, computeRiverGraph, accumulateRiverFlow } from './terrain-post.js';
+import { applyRunevisionErosion } from './runevision-erosion.js';
 import { computeWind } from './wind.js';
 import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
@@ -95,7 +96,7 @@ function computeOrogenicField(debugLayers) {
 
 // Run terrain post-processing with per-step timing
 function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot, r_dampen, r_orogenic, r_erodibility) {
-    const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT } = params;
+    const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT, morenoiseEnabled = false, runevisionEnabled = false } = params;
     const timing = [];
 
     // Terrain warp — first step, before ocean detection or smoothing
@@ -120,12 +121,31 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
         timing.push({ stage: `Smoothing (${smoothIters} iters, str=${smoothStr.toFixed(2)})`, ms: performance.now() - t0 });
     }
 
+    let runevisionDelta = null;
+    let runevisionSlope = null;
+    if (runevisionEnabled) {
+        const t0 = performance.now();
+        const result = applyRunevisionErosion(
+            mesh, r_xyz, neighborDist, r_elevation, r_isOcean, seed,
+            { hotspotField: r_hotspot ?? null, orogenicField: r_orogenic ?? null },
+        );
+        runevisionDelta = result.runevisionDelta;
+        runevisionSlope = result.runevisionSlope;
+        timing.push({ stage: 'Runevision gullies', ms: performance.now() - t0 });
+    }
+
+    const preMorenoise = morenoiseEnabled ? new Float32Array(r_elevation) : null;
+    const fbmMode = morenoiseEnabled ? 'morenoise' : 'classic';
+
     {
         const t0 = performance.now();
         applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, {
             dampenField: r_dampen ?? null,
             dampenStrength: DETAIL_NOISE_DAMPEN_STRENGTH,
             amplitudeField: r_orogenic ?? null,
+            fbmMode,
+            persistence: 2 / 3,
+            gradientStrength: 1.0,
         });
         timing.push({ stage: 'Detail noise L1 (0-100m bumps)', ms: performance.now() - t0 });
     }
@@ -142,8 +162,19 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
             dampenField: r_dampen ?? null,
             dampenStrength: DETAIL_NOISE_DAMPEN_STRENGTH,
             amplitudeField: r_orogenic ?? null,
+            fbmMode,
+            persistence: 2 / 3,
+            gradientStrength: 1.0,
         });
         timing.push({ stage: 'Detail noise L2 (±50m biased)', ms: performance.now() - t0 });
+    }
+
+    let morenoiseDelta = null;
+    if (preMorenoise) {
+        morenoiseDelta = new Float32Array(mesh.numRegions);
+        for (let r = 0; r < mesh.numRegions; r++) {
+            morenoiseDelta[r] = r_elevation[r] - preMorenoise[r];
+        }
     }
 
     if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0) {
@@ -188,7 +219,7 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
         dl_erosionDelta[r] = r_elevation[r] - preErosion[r];
     }
 
-    return { dl_erosionDelta, postTiming: timing };
+    return { dl_erosionDelta, morenoiseDelta, runevisionDelta, runevisionSlope, postTiming: timing };
 }
 
 function getClimateParams(data) {
@@ -338,7 +369,7 @@ function riverPrecipWeight(precipResult) {
 }
 
 function handleGenerate(data) {
-    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT, numHotspots = NUM_HOTSPOTS, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, axialTilt = 23.5, rotationRate = 1, greenhouse = 0, winterSeverity = 1, orographicRain = 1, maritimeInfluence = 1, mountainChill = 1, seed: overrideSeed, toggledIndices, motionOverrides: motionOverrideRecords = [], skipClimate, computeMetrics = false } = data;
+    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT, numHotspots = NUM_HOTSPOTS, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, axialTilt = 23.5, rotationRate = 1, greenhouse = 0, winterSeverity = 1, orographicRain = 1, maritimeInfluence = 1, mountainChill = 1, seed: overrideSeed, toggledIndices, motionOverrides: motionOverrideRecords = [], morenoiseEnabled = false, runevisionEnabled = false, skipClimate, computeMetrics = false } = data;
     const spread = 5;
     const timing = []; // top-level pipeline timing
 
@@ -433,9 +464,12 @@ function handleGenerate(data) {
 
         progress(60, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound, deposition }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
+        const { dl_erosionDelta, morenoiseDelta, runevisionDelta, runevisionSlope, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound, deposition, morenoiseEnabled, runevisionEnabled }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
         timing.push({ stage: 'Terrain post-processing (total)', ms: performance.now() - t0 });
         debugLayers.erosionDelta = dl_erosionDelta;
+        debugLayers.morenoiseDelta = morenoiseDelta;
+        debugLayers.runevisionDelta = runevisionDelta;
+        debugLayers.runevisionSlope = runevisionSlope;
 
         attachPlatePhysicsDebug(debugLayers, physicsDebug);
 
@@ -533,6 +567,7 @@ function handleGenerate(data) {
             r_dampen: r_dampen ? new Float32Array(r_dampen) : null,
             r_orogenic: r_orogenic ? new Float32Array(r_orogenic) : null,
             r_erodibility: r_erodibility ? new Float32Array(r_erodibility) : null,
+            r_hotspot: debugLayers.hotspot ? new Float32Array(debugLayers.hotspot) : null,
             // Retain coarse-plate data so editRecompute can rebuild super
             // plates with the same detail-independent adjacency graph.
             coarseMesh,
@@ -605,7 +640,7 @@ function handleGenerate(data) {
             _pipelineTiming: timing,          // top-level pipeline stages
             _postTiming: postTiming,          // post-processing sub-stages
             _workerTotal: tWorkerTotal,
-            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, rebound, deposition, numHotspots, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
+            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, rebound, deposition, numHotspots, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, morenoiseEnabled, runevisionEnabled, seed },
             terrainMetrics
         };
 
@@ -616,6 +651,9 @@ function handleGenerate(data) {
             r_stress.buffer,
             riverGraph.drainTarget.buffer, riverFlow.buffer
         ];
+        if (morenoiseDelta) transferList.push(morenoiseDelta.buffer);
+        if (runevisionDelta) transferList.push(runevisionDelta.buffer);
+        if (runevisionSlope) transferList.push(runevisionSlope.buffer);
 
         self.postMessage(result, transferList);
 
@@ -641,7 +679,7 @@ function handleReapply(data) {
 
         progress(20, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed, undefined, W.r_dampen, W.r_orogenic, W.r_erodibility);
+        const { dl_erosionDelta, morenoiseDelta, runevisionDelta, runevisionSlope, postTiming } = runPostProcessing(W.mesh, W.r_xyz, r_elevation, data, W.neighborDist, W.seed, W.r_hotspot, W.r_dampen, W.r_orogenic, W.r_erodibility);
         const tPost = performance.now() - t0;
 
         // Update retained final elevation for deferred climate
@@ -704,6 +742,9 @@ function handleReapply(data) {
             r_elevation,
             t_elevation,
             erosionDelta: dl_erosionDelta,
+            morenoiseDelta,
+            runevisionDelta,
+            runevisionSlope,
             riverDrainTarget: riverGraph.drainTarget, riverFlow,
             ...buildClimateFields(windResult, oceanResult, precipResult, tempResult),
             windDebugLayers: windResult ? {
@@ -730,15 +771,21 @@ function handleReapply(data) {
                 precipitation: tPrecip,
                 temperature: tTemp,
                 triangleElevations: tTriElev,
+                morenoiseEnabled: !!data.morenoiseEnabled,
+                runevisionEnabled: !!data.runevisionEnabled,
                 workerTotal: tWorkerTotal
             },
             _postTiming: postTiming
         };
 
-        self.postMessage(result, [
+        const transferList = [
             r_elevation.buffer, t_elevation.buffer, dl_erosionDelta.buffer,
             riverGraph.drainTarget.buffer, riverFlow.buffer
-        ]);
+        ];
+        if (morenoiseDelta) transferList.push(morenoiseDelta.buffer);
+        if (runevisionDelta) transferList.push(runevisionDelta.buffer);
+        if (runevisionSlope) transferList.push(runevisionSlope.buffer);
+        self.postMessage(result, transferList);
 
     } catch (err) {
         self.postMessage({ type: 'error', message: err.message, stack: err.stack });
@@ -798,12 +845,16 @@ function handleEditRecompute(data) {
         W.r_dampen = r_dampen ? new Float32Array(r_dampen) : null;
         W.r_orogenic = r_orogenic ? new Float32Array(r_orogenic) : null;
         W.r_erodibility = r_erodibility ? new Float32Array(r_erodibility) : null;
+        W.r_hotspot = debugLayers.hotspot ? new Float32Array(debugLayers.hotspot) : null;
 
         progress(50, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
+        const { dl_erosionDelta, morenoiseDelta, runevisionDelta, runevisionSlope, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, data, W.neighborDist, W.seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
         const tPost = performance.now() - t0;
         debugLayers.erosionDelta = dl_erosionDelta;
+        debugLayers.morenoiseDelta = morenoiseDelta;
+        debugLayers.runevisionDelta = runevisionDelta;
+        debugLayers.runevisionSlope = runevisionSlope;
         attachPlatePhysicsDebug(debugLayers, physicsDebug);
 
         // Update retained final elevation for deferred climate
@@ -913,16 +964,22 @@ function handleEditRecompute(data) {
                 temperature: tTemp,
                 triangleElevations: tTriElev,
                 retainState: tRetain,
+                morenoiseEnabled: !!data.morenoiseEnabled,
+                runevisionEnabled: !!data.runevisionEnabled,
                 workerTotal: tWorkerTotal
             },
             _timing,        // elevation sub-stages
             _postTiming: postTiming
         };
 
-        self.postMessage(result, [
+        const transferList = [
             prePostElev.buffer, r_elevation.buffer, t_elevation.buffer, r_stress.buffer,
             riverGraph.drainTarget.buffer, riverFlow.buffer
-        ]);
+        ];
+        if (morenoiseDelta) transferList.push(morenoiseDelta.buffer);
+        if (runevisionDelta) transferList.push(runevisionDelta.buffer);
+        if (runevisionSlope) transferList.push(runevisionSlope.buffer);
+        self.postMessage(result, transferList);
 
     } catch (err) {
         self.postMessage({ type: 'error', message: err.message, stack: err.stack });
@@ -1276,6 +1333,7 @@ function handleImportHeightmap(data) {
             r_stress: new Float32Array(r_stress),
             axialTilt, rotationRate, greenhouse, winterSeverity, orographicRain, maritimeInfluence, mountainChill,
             cachedWind: windResult, cachedOcean: oceanResult,
+            r_hotspot: null,
             // Clone before the originals below are transferred (climate recompute reuses this).
             riverGraph: { drainTarget: new Int32Array(riverGraph.drainTarget), order: new Int32Array(riverGraph.order) },
         };
@@ -1310,7 +1368,7 @@ function handleImportHeightmap(data) {
             _pipelineTiming: timing,
             _postTiming: postTiming,
             _workerTotal: tWorkerTotal,
-            _params: { N, P: 0, jitter, nMag, numContinents: 0, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, seed }
+            _params: { N, P: 0, jitter, nMag, numContinents: 0, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, morenoiseEnabled: false, runevisionEnabled: false, seed }
         };
 
         const transferList = [

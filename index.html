@@ -347,6 +347,11 @@
                     <button class="map-tab" data-layer="trewartha">Trewartha</button>
                     <button class="map-tab" data-layer="landheightmap">Heightmap</button>
                 </div>
+                <div id="terrainLab" class="terrain-lab">
+                    <div class="cg-sub">Terrain Lab <span>experimental</span></div>
+                    <label class="toggle-label"><input type="checkbox" id="ffMorenoise"><span class="toggle-track"><span class="toggle-thumb"></span></span>Morenoise detail</label>
+                    <label class="toggle-label"><input type="checkbox" id="ffRunevision"><span class="toggle-track"><span class="toggle-thumb"></span></span>Runevision gullies</label>
+                </div>
                 <div class="cg">
                     <label>Inspect</label>
                     <select id="debugLayer">
@@ -377,6 +382,11 @@
                             <option value="uniformNoise">Uniform Land Noise</option>
                             <option value="dynamicTopo">Dynamic Topography</option>
                             <option value="erosionDelta">Erosion Delta</option>
+                        </optgroup>
+                        <optgroup id="terrainLabInspect" label="Terrain Lab">
+                            <option value="morenoiseDelta">Morenoise Delta</option>
+                            <option value="runevisionDelta">Runevision Delta</option>
+                            <option value="runevisionSlope">Runevision Slope</option>
                         </optgroup>
                         <optgroup label="Plate Physics">
                             <option value="continentalDrag">Continental Drag</option>

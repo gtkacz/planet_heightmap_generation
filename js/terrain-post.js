@@ -922,6 +922,9 @@ export function applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, opts
     const bipolar = opts.bipolar ?? false;
     const biasExponent = opts.biasExponent ?? 1.0;
     const seedOffset = opts.seedOffset ?? 31337;
+    const fbmMode = opts.fbmMode ?? 'classic';
+    const morenoisePersistence = opts.persistence ?? 2 / 3;
+    const morenoiseGradientStrength = opts.gradientStrength ?? 1.0;
     // Optional per-cell dampening: dampenField[r] in [0,1], 1 = max dampen.
     // The noise amplitude at cell r is scaled by (1 - dampenStrength * dampenField[r]).
     const dampenField = opts.dampenField ?? null;
@@ -957,7 +960,19 @@ export function applyDetailNoise(mesh, r_xyz, r_elevation, r_isOcean, seed, opts
         const dy = noise.fbm(px * wf - 5.1, py * wf + 2.8, pz * wf - 7.3, wo) * wa;
         const dz = noise.fbm(px * wf + 6.6, py * wf - 8.4, pz * wf + 3.1, wo) * wa;
 
-        let n = noise.fbm((px + dx) * df, (py + dy) * df, (pz + dz) * df, doct);
+        let n;
+        if (fbmMode === 'morenoise') {
+            // The tangent normal intentionally comes from the original sphere
+            // position. This experimental mode does not include the domain-
+            // warp Jacobian when projecting octave-local derivatives.
+            n = noise.erosiveFbm(
+                (px + dx) * df, (py + dy) * df, (pz + dz) * df,
+                px, py, pz,
+                doct, morenoisePersistence, morenoiseGradientStrength,
+            );
+        } else {
+            n = noise.fbm((px + dx) * df, (py + dy) * df, (pz + dz) * df, doct);
+        }
         if (n < -1) n = -1; else if (n > 1) n = 1;
 
         let mapped;

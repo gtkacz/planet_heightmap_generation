@@ -393,6 +393,7 @@ if (worker) {
                 if (msg._params) {
                     console.log(`  Params: N=${msg._params.N.toLocaleString()} P=${msg._params.P} jitter=${msg._params.jitter} noise=${msg._params.nMag} continents=${msg._params.numContinents} seed=${msg._params.seed}`);
                     console.log(`  Sculpting: warp=${msg._params.terrainWarp} smooth=${msg._params.smoothing} glacial=${msg._params.glacialErosion} hydraulic=${msg._params.hydraulicErosion} thermal=${msg._params.thermalErosion} ridge=${msg._params.ridgeSharpening}`);
+                    console.log(`  Terrain Lab: morenoise=${!!msg._params.morenoiseEnabled} runevision=${!!msg._params.runevisionEnabled}`);
                 }
                 console.log(`  Regions: ${mesh.numRegions.toLocaleString()}  Triangles: ${mesh.numTriangles.toLocaleString()}  Sides: ${mesh.numSides.toLocaleString()}`);
 
@@ -446,6 +447,9 @@ if (worker) {
                 d.r_elevation = msg.r_elevation;
                 d.t_elevation = msg.t_elevation;
                 d.debugLayers.erosionDelta = msg.erosionDelta;
+                d.debugLayers.morenoiseDelta = msg.morenoiseDelta ?? null;
+                d.debugLayers.runevisionDelta = msg.runevisionDelta ?? null;
+                d.debugLayers.runevisionSlope = msg.runevisionSlope ?? null;
                 d.riverDrainTarget = msg.riverDrainTarget;
                 d.riverFlow = msg.riverFlow;
                 if (msg.r_wind_east_summer) {
@@ -545,6 +549,7 @@ if (worker) {
                 const f = v => typeof v === 'number' ? v.toFixed(1) : v;
                 const rt = msg._reapplyTiming || {};
                 console.log(`%c[World Orogen] Reapply complete`, 'color:#8f8;font-weight:bold');
+                console.log(`  Terrain Lab: morenoise=${!!rt.morenoiseEnabled} runevision=${!!rt.runevisionEnabled}`);
                 if (msg._postTiming && msg._postTiming.length > 0) {
                     console.groupCollapsed('  %cPost-processing sub-stages', 'color:#8f8');
                     console.table(msg._postTiming.map(r => ({ Stage: r.stage, 'ms': f(r.ms) })));
@@ -675,6 +680,7 @@ if (worker) {
                 const f = v => typeof v === 'number' ? v.toFixed(1) : v;
                 const et = msg._editTiming || {};
                 console.log(`%c[World Orogen] Edit recompute complete`, 'color:#fc8;font-weight:bold');
+                console.log(`  Terrain Lab: morenoise=${!!et.morenoiseEnabled} runevision=${!!et.runevisionEnabled}`);
 
                 if (msg._timing) {
                     console.groupCollapsed('  %cElevation sub-stages', 'color:#fc8');
@@ -760,7 +766,7 @@ if (worker) {
 let _fallbackModules = null;
 async function loadFallback() {
     if (_fallbackModules) return _fallbackModules;
-    const [rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion] = await Promise.all([
+    const [rng, simplex, sphere, plates, ocean, elev, post, runevision, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion] = await Promise.all([
         import('./rng.js'),
         import('./simplex-noise.js'),
         import('./sphere-mesh.js'),
@@ -768,6 +774,7 @@ async function loadFallback() {
         import('./ocean-land.js'),
         import('./elevation.js'),
         import('./terrain-post.js'),
+        import('./runevision-erosion.js'),
         import('./wind.js'),
         import('./ocean.js'),
         import('./precipitation.js'),
@@ -775,11 +782,12 @@ async function loadFallback() {
         import('./coarse-plates.js'),
         import('./plate-motion.js')
     ]);
-    _fallbackModules = { rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion };
+    _fallbackModules = { rng, simplex, sphere, plates, ocean, elev, post, runevision, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion };
     return _fallbackModules;
 }
 
-function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate, motionOverrideRecords = []) {
+function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate,
+    motionOverrideRecords = [], morenoiseEnabled = false, runevisionEnabled = false) {
     // Dynamic import already resolved — run synchronously via rAF stages
     const m = _fallbackModules;
     const btn = document.getElementById('generate');
@@ -866,16 +874,45 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate,
                     r_orogenic[r] = v < 0 ? 0 : (v > 1 ? 1 : v);
                 }
             }
+            let runevisionDelta = null, runevisionSlope = null;
+            let runevisionNeighborDist;
+            if (runevisionEnabled) {
+                // Computed only for the experimental path. The same distances
+                // can safely support composite erosion in this branch; with
+                // the flag off, its legacy undefined argument is unchanged.
+                runevisionNeighborDist = m.sphere.computeNeighborDist(ctx.mesh, ctx.r_xyz);
+                const rv = m.runevision.applyRunevisionErosion(
+                    ctx.mesh, ctx.r_xyz, runevisionNeighborDist, r_elevation,
+                    r_isOcean, ctx.seed,
+                    { hotspotField: debugLayers.hotspot ?? null, orogenicField: r_orogenic },
+                );
+                runevisionDelta = rv.runevisionDelta;
+                runevisionSlope = rv.runevisionSlope;
+            }
+            const preMorenoise = morenoiseEnabled ? new Float32Array(r_elevation) : null;
+            const fbmMode = morenoiseEnabled ? 'morenoise' : 'classic';
             m.post.applyDetailNoise(ctx.mesh, ctx.r_xyz, r_elevation, r_isOcean, ctx.seed, {
                 dampenField: r_dampen, dampenStrength: 0.5,
                 amplitudeField: r_orogenic,
+                fbmMode, persistence: 2 / 3, gradientStrength: 1.0,
             });
             m.post.applyDetailNoise(ctx.mesh, ctx.r_xyz, r_elevation, r_isOcean, ctx.seed, {
                 amplitudeKm: 0.05, frequencyMult: 2.0, warpAmpMult: 2.0,
                 bipolar: true, biasExponent: 0.4, seedOffset: 13579,
                 dampenField: r_dampen, dampenStrength: 0.5,
                 amplitudeField: r_orogenic,
+                fbmMode, persistence: 2 / 3, gradientStrength: 1.0,
             });
+            let morenoiseDelta = null;
+            if (preMorenoise) {
+                morenoiseDelta = new Float32Array(ctx.mesh.numRegions);
+                for (let r = 0; r < ctx.mesh.numRegions; r++) {
+                    morenoiseDelta[r] = r_elevation[r] - preMorenoise[r];
+                }
+            }
+            debugLayers.morenoiseDelta = morenoiseDelta;
+            debugLayers.runevisionDelta = runevisionDelta;
+            debugLayers.runevisionSlope = runevisionSlope;
             // Per-cell erodibility from craton/basin weights (cratons resist, basins soften) —
             // mirrors computeErodibilityField() in planet-worker.js for the no-worker path.
             let r_erodibility = null;
@@ -887,10 +924,10 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate,
                 }
             }
             if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0) {
-                // neighborDist arg (unchanged from prior behavior): this fallback path never
-                // computed it, so it stays undefined here — r_erodibility/deposition are trailing args.
+                // With Runevision off the neighborDist argument remains the
+                // legacy undefined value, preserving flag-off compatibility.
                 const preEro = rebound > 0 ? new Float32Array(r_elevation) : null;
-                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, undefined, r_erodibility, deposition);
+                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, runevisionNeighborDist, r_erodibility, deposition);
                 if (preEro) {
                     m.post.applyIsostaticRebound(ctx.mesh, r_elevation, r_isOcean, preEro, rebound);
                 }
@@ -1000,7 +1037,8 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate,
 
 // --- Public API ---
 
-export function generate(overrideSeed, toggledIndices = [], onProgress, skipClimate = false, motionOverrides = []) {
+export function generate(overrideSeed, toggledIndices = [], onProgress, skipClimate = false,
+    motionOverrides = [], morenoiseEnabled = false, runevisionEnabled = false) {
     const btn = document.getElementById('generate');
     btn.disabled = true;
     btn.textContent = 'Building\u2026';
@@ -1011,7 +1049,8 @@ export function generate(overrideSeed, toggledIndices = [], onProgress, skipClim
 
     if (!worker) {
         // Fallback: load modules then run synchronously
-        loadFallback().then(() => generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate, motionOverrides));
+        loadFallback().then(() => generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate,
+            motionOverrides, morenoiseEnabled, runevisionEnabled));
         return;
     }
 
@@ -1023,12 +1062,15 @@ export function generate(overrideSeed, toggledIndices = [], onProgress, skipClim
         seed: overrideSeed,
         toggledIndices,
         motionOverrides,
+        morenoiseEnabled,
+        runevisionEnabled,
         skipClimate
     });
 }
 
-export function reapplyViaWorker(onDone, skipClimate = false) {
-    if (!worker || !state.curData) return;
+export function reapplyViaWorker(onDone, skipClimate = false,
+    morenoiseEnabled = false, runevisionEnabled = false) {
+    if (!worker || !state.curData) return false;
 
     _onProgress = (pct, label) => {
         // Progress updates during reapply (used by build overlay if shown)
@@ -1042,11 +1084,15 @@ export function reapplyViaWorker(onDone, skipClimate = false) {
     worker.postMessage({
         cmd: 'reapply',
         ...s, ...climate,
+        morenoiseEnabled,
+        runevisionEnabled,
         skipClimate
     });
+    return true;
 }
 
-export function editRecomputeViaWorker(onDone, skipClimate = false) {
+export function editRecomputeViaWorker(onDone, skipClimate = false,
+    morenoiseEnabled = false, runevisionEnabled = false) {
     if (!worker || !state.curData) return;
 
     const d = state.curData;
@@ -1063,6 +1109,7 @@ export function editRecomputeViaWorker(onDone, skipClimate = false) {
         motionOverrides: plateOverridesToRecords(d.motionOverrides || new Map(), d.plateSeeds),
         nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening,
         deposition, rebound, numHotspots,
+        morenoiseEnabled, runevisionEnabled,
         ...readClimateSliders(),
         skipClimate
     });
