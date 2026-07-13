@@ -46,6 +46,8 @@
             "Tectonic plate simulation with collision detection",
             "Glacial, hydraulic, and thermal erosion",
             "Climate simulation with wind, precipitation, and ocean currents",
+            "Axial tilt and rotation controls with tilt-scaled seasons",
+            "Greenhouse and climate-character sliders",
             "Hotspot volcanism with island chains",
             "Interactive plate editing",
             "Equirectangular heightmap import with automatic climate simulation",
@@ -125,7 +127,7 @@
         <ul>
             <li>Tectonic plate simulation with convergent, divergent, and transform boundaries</li>
             <li>Multiple erosion types: glacial (fjords, U-shaped valleys), hydraulic (river valleys), and thermal (talus slopes)</li>
-            <li>Climate simulation with seasonal wind patterns, ocean currents, precipitation, and K&ouml;ppen climate classification</li>
+            <li>Climate simulation with seasonal wind patterns, ocean currents, precipitation, and K&ouml;ppen climate classification &mdash; tune axial tilt, rotation rate, and greenhouse strength (which reshape seasons and circulation), plus climate-character sliders for winter severity, orographic rain, maritime influence, and mountain lapse rate</li>
             <li>Hotspot volcanism with drift-trail island chains (like Hawaii)</li>
             <li>Interactive plate editing — select multiple plates for batch land/ocean toggling with visual preview before rebuild</li>
             <li>Heightmap import — bring your own equirectangular B&amp;W heightmap (Earth, Mars, hand-drawn) and run full climate simulation on it</li>
@@ -245,7 +247,7 @@
             </div>
         </details>
         <details class="section">
-            <summary>Climate <span class="tip" data-tip="Global temperature and precipitation offsets — changes apply on slider release, recomputing only precipitation, temperature, and climate zones">?</span></summary>
+            <summary>Climate <span class="tip" data-tip="Planetary and climate-character controls (tilt, rotation, greenhouse, temperature, precipitation, and four character knobs) — changes apply on slider release, recomputing only wind/ocean (for tilt/rotation), precipitation, temperature, and climate zones">?</span></summary>
             <div class="section-body">
                 <div class="climate-hint">Changes apply on release — only climate zones are recomputed.</div>
                 <div class="cg-sub">Planet</div>
@@ -437,6 +439,7 @@
                 <h3>Visualize Your World</h3>
                 <p>Switch between <strong>Terrain</strong>, <strong>Satellite</strong>, <strong>Climate</strong>, and <strong>Heightmap</strong> views using the tabs under Visual Options. Use the <strong>Inspect</strong> dropdown for detailed layers like pressure, wind, and precipitation.</p>
                 <p>At high detail, climate is skipped automatically for faster generation &mdash; it computes on demand when you switch to a climate view.</p>
+                <p>Expand the <strong>Climate</strong> panel to give your world alien seasons with <strong>Axial Tilt</strong>, spin it faster with <strong>Rotation Rate</strong>, or thicken its atmosphere with <strong>Greenhouse</strong> &mdash; plus four character sliders for winters, mountain rain, coastal mildness, and lapse rate. Changes apply when you release the slider, recomputing only climate.</p>
             </div>
             <div class="tutorial-step" data-step="4">
                 <h3>Save &amp; Share</h3>
@@ -533,11 +536,18 @@
                     <li><strong>Better terrain at every detail level</strong> &mdash; Mountains, erosion, and coastlines now scale consistently whether you're at 5K or 2.5M regions.</li>
                 </ul>
             </div>
+            <div class="whatsnew-step" data-step="4">
+                <h3>Planet &amp; Climate Controls</h3>
+                <ul class="whatsnew-list">
+                    <li><strong>Planet &amp; Climate controls</strong> &mdash; shape your world's seasons (Axial Tilt), spin (Rotation Rate), and atmosphere (Greenhouse), plus four climate-character sliders (Winter Severity, Orographic Rain, Maritime Influence, Mountain Chill). All recompute climate-only on release.</li>
+                </ul>
+            </div>
             <div class="tutorial-dots">
                 <span class="dot active" data-dot="0"></span>
                 <span class="dot" data-dot="1"></span>
                 <span class="dot" data-dot="2"></span>
                 <span class="dot" data-dot="3"></span>
+                <span class="dot" data-dot="4"></span>
             </div>
             <div class="tutorial-nav">
                 <button id="whatsNewBack" class="btn-ghost" disabled>Back</button>
