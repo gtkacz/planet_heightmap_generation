@@ -800,6 +800,11 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
     // Winter interior cooling is a seasonal-contrast effect: it must vanish on
     // a seasonless (0-tilt) world along with the swing itself.
     const effContWinterCool = CLIMATE.TEMP_CONT_WINTER_COOL_C * seasonFactor;
+    // Greenhouse: thicker atmosphere warms uniformly, flattens the equator→pole
+    // gradient (polar amplification), and softens winters slightly.
+    const effPolewardRange = CLIMATE.TEMP_POLEWARD_RANGE_C * (1 - CLIMATE.TEMP_GH_GRADIENT_FRAC * greenhouse);
+    const ghUniformC = CLIMATE.TEMP_GH_UNIFORM_C * greenhouse;
+    const effWinterShare = CLIMATE.TEMP_SWING_WINTER_SHARE * (1 - CLIMATE.TEMP_GH_WINTER_LIFT * Math.max(0, greenhouse));
 
     // Compute zone-based temperature continentality (Stages A-E)
     const tCont0 = performance.now();
@@ -859,13 +864,13 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
             const itczLat = itczLookup(lon);
             const distItcz = Math.abs(lat - itczLat) / DEG;
             const tItcz = Math.max(0, distItcz - tropicalHW) / maxDist;
-            const T_itcz = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tItcz, CLIMATE.TEMP_POLEWARD_EXP);
+            const T_itcz = CLIMATE.TEMP_PEAK_C - effPolewardRange * Math.pow(tItcz, CLIMATE.TEMP_POLEWARD_EXP);
 
             // Flat reference curve (ITCZ at 5° in summer hemisphere)
             const flatItczLat = (name === 'summer' ? 5 : -5) * DEG * seasonFactor;
             const distFlat = Math.abs(lat - flatItczLat) / DEG;
             const tFlat = Math.max(0, distFlat - tropicalHW) / maxDist;
-            const T_flat = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tFlat, CLIMATE.TEMP_POLEWARD_EXP);
+            const T_flat = CLIMATE.TEMP_PEAK_C - effPolewardRange * Math.pow(tFlat, CLIMATE.TEMP_POLEWARD_EXP);
 
             // Blend: ITCZ curve dominates tropics, flat curve dominates poles
             const absLatDeg = Math.abs(lat) / DEG;
@@ -937,8 +942,8 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 const distWinter = Math.abs(lat - winItczLat) / DEG;
                 const tS = Math.max(0, distSummer - tropicalHW) / maxDist;
                 const tW = Math.max(0, distWinter - tropicalHW) / maxDist;
-                const T_summer = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tS, CLIMATE.TEMP_POLEWARD_EXP);
-                const T_winter = CLIMATE.TEMP_PEAK_C - CLIMATE.TEMP_POLEWARD_RANGE_C * Math.pow(tW, CLIMATE.TEMP_POLEWARD_EXP);
+                const T_summer = CLIMATE.TEMP_PEAK_C - effPolewardRange * Math.pow(tS, CLIMATE.TEMP_POLEWARD_EXP);
+                const T_winter = CLIMATE.TEMP_PEAK_C - effPolewardRange * Math.pow(tW, CLIMATE.TEMP_POLEWARD_EXP);
                 const itczAmplitude = Math.abs(T_summer - T_winter) / 2;
 
                 const extraAmplitude = Math.max(0, tableAmplitude - itczAmplitude) * CLIMATE.TEMP_EXTRA_SWING_FACTOR;
@@ -948,7 +953,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 // the annual mean than summers rise above it (radiative cooling
                 // under winter highs). TEMP_SWING_WINTER_SHARE = 0.5 → symmetric;
                 // 0.6 → winter gets 60% of the total extra swing.
-                const wShare = CLIMATE.TEMP_SWING_WINTER_SHARE;
+                const wShare = effWinterShare;
                 T += isLocalSummer
                     ? extraAmplitude * 2 * (1 - wShare)
                     : -extraAmplitude * 2 * wShare;
@@ -984,7 +989,7 @@ export function computeTemperature(mesh, r_xyz, r_elevation, windResult, oceanRe
                 }
             }
 
-            T += temperatureOffset;
+            T += temperatureOffset + ghUniformC;
             temp[r] = T;
         }
 
