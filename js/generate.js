@@ -11,6 +11,11 @@ import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM } from './terrain-config.js';
+import {
+    clonePlateVec,
+    plateOverridesToRecords,
+    recordsToPlateOverrides,
+} from './plate-motion.js';
 
 // Main thread still needs Delaunator for SphereMesh reconstruction
 setDelaunator(Delaunator);
@@ -198,13 +203,17 @@ if (worker) {
                 state.climateComputed = !msg.skipClimate;
 
                 const tStateStart = performance.now();
+                const plateSeeds = new Set(msg.plateSeeds);
                 state.curData = {
                     mesh,
                     r_xyz: msg.r_xyz,
                     t_xyz: msg.t_xyz,
                     r_plate: msg.r_plate,
-                    plateSeeds: new Set(msg.plateSeeds),
+                    plateSeeds,
                     plateVec: msg.plateVec,
+                    generatedPlateVec: msg.generatedPlateVec || clonePlateVec(msg.plateVec),
+                    motionAnchors: msg.motionAnchors || {},
+                    motionOverrides: recordsToPlateOverrides(msg.motionOverrides || [], plateSeeds),
                     plateIsOcean: new Set(msg.plateIsOcean),
                     originalPlateIsOcean: new Set(msg.originalPlateIsOcean),
                     plateDensity: msg.plateDensity,
@@ -515,6 +524,10 @@ if (worker) {
                 const tMainStart = performance.now();
                 state.climateComputed = !msg.skipClimate;
                 const d = state.curData;
+                d.plateVec = msg.plateVec;
+                d.generatedPlateVec = msg.generatedPlateVec;
+                d.motionAnchors = msg.motionAnchors || d.motionAnchors;
+                d.motionOverrides = recordsToPlateOverrides(msg.motionOverrides || [], d.plateSeeds);
                 d.prePostElev = msg.prePostElev;
                 d.r_elevation = msg.r_elevation;
                 d.t_elevation = msg.t_elevation;
@@ -702,7 +715,7 @@ if (worker) {
 let _fallbackModules = null;
 async function loadFallback() {
     if (_fallbackModules) return _fallbackModules;
-    const [rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates] = await Promise.all([
+    const [rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion] = await Promise.all([
         import('./rng.js'),
         import('./simplex-noise.js'),
         import('./sphere-mesh.js'),
@@ -714,13 +727,14 @@ async function loadFallback() {
         import('./ocean.js'),
         import('./precipitation.js'),
         import('./temperature.js'),
-        import('./coarse-plates.js')
+        import('./coarse-plates.js'),
+        import('./plate-motion.js')
     ]);
-    _fallbackModules = { rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates };
+    _fallbackModules = { rng, simplex, sphere, plates, ocean, elev, post, wind, oceanCurrents, precip, temp, coarsePlates, plateMotion };
     return _fallbackModules;
 }
 
-function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate) {
+function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate, motionOverrideRecords = []) {
     // Dynamic import already resolved — run synchronously via rAF stages
     const m = _fallbackModules;
     const btn = document.getElementById('generate');
@@ -741,7 +755,10 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 m.coarsePlates.generateCoarsePlates(ctx.seed, P, numContinents, continentSizeVariety, landCoverage);
             ctx.coarseMesh = coarseMesh; ctx.coarse_xyz = coarse_xyz;
             ctx.coarse_r_plate = coarse_r_plate;
-            ctx.plateSeeds = coarsePlateSeeds; ctx.plateVec = coarsePlateVec;
+            ctx.plateSeeds = coarsePlateSeeds;
+            ctx.generatedPlateVec = m.plateMotion.clonePlateVec(coarsePlateVec);
+            ctx.motionAnchors = m.plateMotion.computePlateMotionAnchors(coarse_r_plate, coarsePlateSeeds, coarse_xyz);
+            ctx.motionOverrides = m.plateMotion.recordsToPlateOverrides(motionOverrideRecords, coarsePlateSeeds);
             ctx.coarsePlateIsOcean = coarsePlateIsOcean;
         }},
         { pct: 18, label: 'Projecting plates\u2026', work() {
@@ -772,6 +789,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
             }
             ctx.plateIsOcean = plateIsOcean; ctx.plateDensity = plateDensity;
             ctx.plateDensityLand = plateDensityLand; ctx.plateDensityOcean = plateDensityOcean;
+            ctx.plateVec = m.plateMotion.applyMotionOverrides(ctx.generatedPlateVec, ctx.motionAnchors, ctx.motionOverrides);
             ctx.noise = new m.simplex.SimplexNoise(ctx.seed);
         }},
         { pct: 35, label: 'Raising mountains\u2026', work() {
@@ -855,6 +873,9 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
             state.curData = {
                 mesh: ctx.mesh, r_xyz: ctx.r_xyz, t_xyz: ctx.t_xyz,
                 r_plate: ctx.r_plate, plateSeeds: ctx.plateSeeds, plateVec: ctx.plateVec,
+                generatedPlateVec: ctx.generatedPlateVec,
+                motionAnchors: ctx.motionAnchors,
+                motionOverrides: ctx.motionOverrides,
                 plateIsOcean: ctx.plateIsOcean, originalPlateIsOcean: ctx.originalPlateIsOcean,
                 plateDensity: ctx.plateDensity, plateDensityLand: ctx.plateDensityLand,
                 plateDensityOcean: ctx.plateDensityOcean, prePostElev: ctx.prePostElev,
@@ -902,7 +923,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
 
 // --- Public API ---
 
-export function generate(overrideSeed, toggledIndices = [], onProgress, skipClimate = false) {
+export function generate(overrideSeed, toggledIndices = [], onProgress, skipClimate = false, motionOverrides = []) {
     const btn = document.getElementById('generate');
     btn.disabled = true;
     btn.textContent = 'Building\u2026';
@@ -913,7 +934,7 @@ export function generate(overrideSeed, toggledIndices = [], onProgress, skipClim
 
     if (!worker) {
         // Fallback: load modules then run synchronously
-        loadFallback().then(() => generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate));
+        loadFallback().then(() => generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate, motionOverrides));
         return;
     }
 
@@ -924,6 +945,7 @@ export function generate(overrideSeed, toggledIndices = [], onProgress, skipClim
         ...s,
         seed: overrideSeed,
         toggledIndices,
+        motionOverrides,
         skipClimate
     });
 }
@@ -963,6 +985,7 @@ export function editRecomputeViaWorker(onDone, skipClimate = false) {
         cmd: 'editRecompute',
         plateIsOcean: Array.from(d.plateIsOcean),
         plateDensity: d.plateDensity,
+        motionOverrides: plateOverridesToRecords(d.motionOverrides || new Map(), d.plateSeeds),
         nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening,
         temperatureOffset, precipitationOffset, landCoverage,
         skipClimate
