@@ -498,6 +498,12 @@ export const FLOOD_CARVE_RADIUS_FRAC = 0.3;
 // Weight floor keeps rivers alive across deserts (exotic rivers like the Nile)
 // once flow is precipitation-weighted.
 export const RIVER_PRECIP_WEIGHT_FLOOR = 0.15;
+// Minimum drainage area to draw, in reference-resolution cell units
+// (≈ 630 km² per unit at the 204K default; flow is flowScale-normalized
+// so this reads as the same physical catchment at every Detail).
+export const RIVER_FLOW_MIN = 40;
+// log10 decades of flow over which the color ramp saturates
+export const RIVER_RAMP_DECADES = 2.5;
 
 // ── Plate Generation ──
 export const PLATE_LOW_PLATE_T_HIGH = 80;

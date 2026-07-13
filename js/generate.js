@@ -3,7 +3,7 @@
 
 import Delaunator from 'delaunator';
 import { setDelaunator, SphereMesh } from './sphere-mesh.js';
-import { computePlateColors, buildMesh } from './planet-mesh.js';
+import { computePlateColors, buildMesh, updateRiverOverlay } from './planet-mesh.js';
 import { state } from './state.js';
 import { detailFromSlider } from './detail-scale.js';
 import { computeOceanCurrents } from './ocean.js';
@@ -680,6 +680,7 @@ if (worker) {
                     }
                     // Only the flow re-weight is sent here — the drain graph itself is unchanged
                     if (msg.riverFlow) d.riverFlow = msg.riverFlow;
+                    updateRiverOverlay();
                 }
                 state.climateComputed = true;
                 buildMesh();

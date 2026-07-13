@@ -7,7 +7,7 @@ import { renderer, scene, camera, ctrl, waterMesh, atmosMesh, starsMesh,
 import { state } from './state.js';
 import { generate, reapplyViaWorker, computeClimateViaWorker, editRecomputeViaWorker } from './generate.js';
 import { encodePlanetCode, decodePlanetCode } from './planet-code.js';
-import { buildMesh, updateMeshColors, updateSuperPlateBorders, buildMapMesh, rebuildGrids, exportMap, exportMapBatch, buildWindArrows, buildOceanCurrentArrows, updateKoppenHoverHighlight, updateMapKoppenHoverHighlight, updatePendingHighlight, updateMapPendingHighlight } from './planet-mesh.js';
+import { buildMesh, updateMeshColors, updateSuperPlateBorders, updateRiverOverlay, buildMapMesh, rebuildGrids, exportMap, exportMapBatch, buildWindArrows, buildOceanCurrentArrows, updateKoppenHoverHighlight, updateMapKoppenHoverHighlight, updatePendingHighlight, updateMapPendingHighlight } from './planet-mesh.js';
 import { setupEditMode } from './edit-mode.js';
 import { detailFromSlider, sliderFromDetail } from './detail-scale.js';
 import { KOPPEN_CLASSES } from './koppen.js';
@@ -679,6 +679,7 @@ seedInput.addEventListener('keydown', (e) => {
 // View-mode checkboxes
 document.getElementById('chkPlates').addEventListener('change', () => { updateMeshColors(); updateSuperPlateBorders(); });
 document.getElementById('chkWire').addEventListener('change', buildMesh);
+document.getElementById('chkRivers').addEventListener('change', updateRiverOverlay);
 
 // Grid toggle
 const gridSpacingGroup = document.getElementById('gridSpacingGroup');
@@ -722,6 +723,7 @@ sMapCenterLon.addEventListener('input', () => {
 sMapCenterLon.addEventListener('change', () => {
     if (state.mapMode) {
         buildMapMesh();
+        updateRiverOverlay();
         // Rebuild arrows if a wind/ocean layer is active
         const layer = state.debugLayer;
         const isWind = layer === 'pressureSummer' || layer === 'pressureWinter' ||
@@ -806,6 +808,9 @@ document.getElementById('viewMode').addEventListener('change', (e) => {
         ctrl.enabled = true;
         mapCenterLonGroup.style.display = 'none';
     }
+    // Rivers are projection-specific (globe vs map polylines) — rebuild for
+    // the new mode regardless of direction, using the mesh/curData already in state.
+    updateRiverOverlay();
 });
 
 // Debug layer dropdown
