@@ -11,6 +11,7 @@ import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
+import { percentile } from './climate-util.js';
 import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX } from './terrain-config.js';
 
 // Main thread still needs Delaunator for SphereMesh reconstruction
@@ -164,6 +165,16 @@ function buildWindResultForOcean(mesh, r_xyz, r_elevation,
         r_wind_speed_summer[r] = Math.sqrt(se * se + sn * sn);
         const we = r_wind_east_winter[r], wn = r_wind_north_winter[r];
         r_wind_speed_winter[r] = Math.sqrt(we * we + wn * wn);
+    }
+
+    // Normalize to 0-1 like wind.js does (see js/wind.js:843-846), so consumers
+    // reading r_wind_speed_* (e.g. ocean.js's wind-coupling gain) see a
+    // calibrated speed on this fallback path too, not a raw magnitude.
+    const maxSummer = percentile(r_wind_speed_summer, 0.95) || 1;
+    const maxWinter = percentile(r_wind_speed_winter, 0.95) || 1;
+    for (let r = 0; r < n; r++) {
+        r_wind_speed_summer[r] = Math.min(1, r_wind_speed_summer[r] / maxSummer);
+        r_wind_speed_winter[r] = Math.min(1, r_wind_speed_winter[r] / maxWinter);
     }
 
     // Zero-filled pressure deviation (neutral: no pressure-driven effects in fallback)
