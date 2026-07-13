@@ -19,6 +19,7 @@ import {
     HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY, EROSION_REF_REGIONS,
     THERMAL_TRANSFER_FRAC,
     RIDGE_SHARPEN_CAP, VALLEY_DEEPEN_FACTOR, VALLEY_FLOOR_FRAC, VALLEY_FLOOR_MIN,
+    REBOUND_RESTORE_FRAC, REBOUND_FLEX_KM,
     DETAIL_NOISE_AMP_KM, DETAIL_NOISE_FREQ, DETAIL_NOISE_OCTAVES,
     DETAIL_NOISE_WARP_FREQ, DETAIL_NOISE_WARP_AMP, DETAIL_NOISE_WARP_OCTAVES,
     DETAIL_NOISE_DAMPEN_STRENGTH,
@@ -1013,5 +1014,45 @@ export function applySoilCreep(mesh, r_elevation, r_isOcean, iterations, strengt
             tmp[r] = h + (avg - h) * strength;
         }
         for (let li = 0; li < ilCount; li++) r_elevation[interiorLand[li]] = tmp[interiorLand[li]];
+    }
+}
+
+/**
+ * Isostatic rebound: erosion unloads the crust, which flexes back up. The
+ * erosion-only delta (snapshotted around erodeComposite by the caller — the
+ * cumulative dl_erosionDelta also contains smoothing/detail noise and is NOT
+ * usable here) is spread over a flexural radius and a fraction added back,
+ * so eroded orogens keep broad relief instead of melting away.
+ */
+export function applyIsostaticRebound(mesh, r_elevation, r_isOcean, preErosion, strength) {
+    if (strength <= 0) return;
+    const N = mesh.numRegions;
+    const { adjOffset, adjList } = mesh;
+    const avgEdgeKm = (Math.PI * 6371) / Math.sqrt(N);
+    const passes = Math.max(1, Math.round(REBOUND_FLEX_KM / avgEdgeKm));
+
+    let src = new Float32Array(N);
+    for (let r = 0; r < N; r++) {
+        if (!r_isOcean[r]) {
+            const d = preErosion[r] - r_elevation[r];
+            if (d > 0) src[r] = d;
+        }
+    }
+    // Diffusion crosses coastlines (flexure does) but uplift applies to land only
+    let dst = new Float32Array(N);
+    for (let p = 0; p < passes; p++) {
+        for (let r = 0; r < N; r++) {
+            let sum = src[r], cnt = 1;
+            for (let j = adjOffset[r], jEnd = adjOffset[r + 1]; j < jEnd; j++) {
+                sum += src[adjList[j]];
+                cnt++;
+            }
+            dst[r] = sum / cnt;
+        }
+        const tmp = src; src = dst; dst = tmp;
+    }
+    const k = strength * REBOUND_RESTORE_FRAC;
+    for (let r = 0; r < N; r++) {
+        if (!r_isOcean[r]) r_elevation[r] += k * src[r];
     }
 }

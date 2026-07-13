@@ -493,6 +493,14 @@ export const LITHO_BASIN_SOFTEN = 0.35;
 export const LITHO_HARDNESS_MIN = 0.55;
 export const LITHO_HARDNESS_MAX = 2.2;
 
+// ── Isostatic rebound ──
+// Fraction of flexural response restored at slider=1; ~0.8 ≈ crust/mantle
+// density ratio. REBOUND_FLEX_KM is the smoothing radius approximating
+// flexural spreading of the unloading response.
+export const REBOUND_DEFAULT = 0.35;
+export const REBOUND_RESTORE_FRAC = 0.8;
+export const REBOUND_FLEX_KM = 200;
+
 // ── Ridge Sharpening (terrain-post.js) ──
 export const RIDGE_SHARPEN_CAP = 2.0;
 export const VALLEY_DEEPEN_FACTOR = 0.5;

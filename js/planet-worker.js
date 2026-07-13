@@ -8,7 +8,7 @@ import { generateCoarsePlates, projectCoarsePlates } from './coarse-plates.js';
 import { smoothAndReconnectPlates } from './plates.js';
 import { assignElevation } from './elevation.js';
 import { buildSuperPlates } from './super-plates.js';
-import { warpTerrain, smoothElevation, erodeComposite, sharpenRidges, applySoilCreep, applyDetailNoise, computeRiverGraph, accumulateRiverFlow } from './terrain-post.js';
+import { warpTerrain, smoothElevation, erodeComposite, applyIsostaticRebound, sharpenRidges, applySoilCreep, applyDetailNoise, computeRiverGraph, accumulateRiverFlow } from './terrain-post.js';
 import { computeWind } from './wind.js';
 import { computeOceanCurrents } from './ocean.js';
 import { computePrecipitation } from './precipitation.js';
@@ -17,7 +17,7 @@ import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
 import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
-import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX } from './terrain-config.js';
+import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX, REBOUND_DEFAULT } from './terrain-config.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -87,7 +87,7 @@ function computeOrogenicField(debugLayers) {
 
 // Run terrain post-processing with per-step timing
 function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed, r_hotspot, r_dampen, r_orogenic, r_erodibility) {
-    const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp } = params;
+    const { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound = REBOUND_DEFAULT } = params;
     const timing = [];
 
     // Terrain warp — first step, before ocean detection or smoothing
@@ -145,6 +145,7 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
         const tIters = Math.round(thermalErosion * 10);
         const talusSlope = 1.2 - thermalErosion * 0.4;
         const kThermal = thermalErosion * 0.15;
+        const preEro = rebound > 0 ? new Float32Array(r_elevation) : null;
         const t0 = performance.now();
         erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
             hIters, hK, 0.5, 1.0,
@@ -152,6 +153,11 @@ function runPostProcessing(mesh, r_xyz, r_elevation, params, neighborDist, seed,
             gIters, glacialErosion,
             neighborDist, r_erodibility ?? null);
         timing.push({ stage: `Erosion composite (h=${hIters}, t=${tIters}, g=${gIters})`, ms: performance.now() - t0 });
+        if (preEro) {
+            const tR = performance.now();
+            applyIsostaticRebound(mesh, r_elevation, r_isOcean, preEro, rebound);
+            timing.push({ stage: `Isostatic rebound (strength=${rebound.toFixed(2)})`, ms: performance.now() - tR });
+        }
     }
 
     if (ridgeSharpening > 0) {
@@ -221,7 +227,7 @@ function riverPrecipWeight(precipResult) {
 }
 
 function handleGenerate(data) {
-    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, seed: overrideSeed, toggledIndices, skipClimate } = data;
+    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, rebound = REBOUND_DEFAULT, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, seed: overrideSeed, toggledIndices, skipClimate } = data;
     const spread = 5;
     const timing = []; // top-level pipeline timing
 
@@ -345,7 +351,7 @@ function handleGenerate(data) {
 
         progress(60, 'Eroding terrain\u2026');
         t0 = performance.now();
-        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
+        const { dl_erosionDelta, postTiming } = runPostProcessing(mesh, r_xyz, r_elevation, { smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, terrainWarp, rebound }, neighborDist, seed, debugLayers.hotspot, r_dampen, r_orogenic, r_erodibility);
         timing.push({ stage: 'Terrain post-processing (total)', ms: performance.now() - t0 });
         debugLayers.erosionDelta = dl_erosionDelta;
 
@@ -503,7 +509,7 @@ function handleGenerate(data) {
             _pipelineTiming: timing,          // top-level pipeline stages
             _postTiming: postTiming,          // post-processing sub-stages
             _workerTotal: tWorkerTotal,
-            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
+            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, rebound, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
             terrainMetrics
         };
 
