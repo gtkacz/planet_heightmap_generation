@@ -743,7 +743,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
     // Dynamic import already resolved — run synchronously via rAF stages
     const m = _fallbackModules;
     const btn = document.getElementById('generate');
-    const { N, P, jitter, nMag, numContinents, terrainWarp, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, deposition, numHotspots } = readSliders();
+    const { N, P, jitter, nMag, numContinents, terrainWarp, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots } = readSliders();
     const progress = onProgress || (() => {});
     const ctx = {};
 
@@ -842,10 +842,15 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                     r_erodibility[r] = 1 / Math.min(LITHO_HARDNESS_MAX, Math.max(LITHO_HARDNESS_MIN, h));
                 }
             }
-            if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0)
+            if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0) {
                 // neighborDist arg (unchanged from prior behavior): this fallback path never
                 // computed it, so it stays undefined here — r_erodibility/deposition are trailing args.
+                const preEro = rebound > 0 ? new Float32Array(r_elevation) : null;
                 m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, undefined, r_erodibility, deposition);
+                if (preEro) {
+                    m.post.applyIsostaticRebound(ctx.mesh, r_elevation, r_isOcean, preEro, rebound);
+                }
+            }
             if (ridgeSharpening > 0) m.post.sharpenRidges(ctx.mesh, r_elevation, r_isOcean, Math.round(1 + ridgeSharpening * 3), ridgeSharpening * 0.08);
             const creepPasses = Math.max(1, Math.round(SOIL_CREEP_KM / ((Math.PI * 6371) / Math.sqrt(ctx.mesh.numRegions))));
             m.post.applySoilCreep(ctx.mesh, r_elevation, r_isOcean, creepPasses, 0.1125);
