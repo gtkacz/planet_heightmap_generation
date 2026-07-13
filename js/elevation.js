@@ -2041,7 +2041,7 @@ function applyVolcanicArcs(mesh, r_xyz, r_elevation, tect, seed, debugLayers) {
     }
 }
 
-function applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_plate, plateIsOcean, seed, debugLayers) {
+function applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_plate, plateIsOcean, seed, debugLayers, numHotspots = NUM_HOTSPOTS) {
     const { numRegions } = mesh;
     const { r_mantleNorm } = tect;
     const { r_isOcean } = sf;
@@ -2102,7 +2102,7 @@ function applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_pl
         }
     };
 
-    for (let h = 0; h < NUM_HOTSPOTS; h++) {
+    for (let h = 0; h < numHotspots; h++) {
         const hStrength = DOME_STRENGTH * (0.4 + hsRng() * 1.2);
         const hSigma    = DOME_SIGMA * (0.4 + hsRng() * 1.2);
         const hDecay    = CHAIN_DECAY + (hsRng() - 0.5) * 0.35;
@@ -2607,7 +2607,7 @@ function fixupTopology(mesh, r_elevation, r_isOcean) {
 // ─────────────────────────────────────────────────────────────────────────
 //  Main orchestrator
 // ─────────────────────────────────────────────────────────────────────────
-export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, noiseMag, seed, spread, plateDensity, superPlateData, r_mantleField) {
+export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, noiseMag, seed, spread, plateDensity, superPlateData, r_mantleField, numHotspots = NUM_HOTSPOTS) {
     const { numRegions } = mesh;
     const _timing = [];
     let _t0 = performance.now();
@@ -2662,7 +2662,7 @@ export function assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, pl
     // Runs BEFORE textured noise so edifice shapes get textured by it.
     applyIslandArcs(mesh, r_xyz, r_elevation, tect, sf, r_plate, seed, debugLayers);
     applyVolcanicArcs(mesh, r_xyz, r_elevation, tect, seed, debugLayers);
-    applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_plate, plateIsOcean, seed, debugLayers);
+    applyHotspotsAndLIPs(mesh, r_xyz, r_elevation, tect, sf, plateVec, r_plate, plateIsOcean, seed, debugLayers, numHotspots);
     _timing.push({ stage: '6. Edifices', ms: performance.now() - _t0 }); _t0 = performance.now();
 
     // Stage 7 — tectonic-band textured noise (was 5)

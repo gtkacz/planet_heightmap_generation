@@ -17,7 +17,7 @@ import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
 import { computeTerrainMetrics } from './terrain-metrics.js';
 import { applyPlatePhysics, expandPlatePhysicsDebug } from './plate-physics.js';
-import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX, REBOUND_DEFAULT, DEPOSITION_DEFAULT } from './terrain-config.js';
+import { SUPER_PLATE_PHYSICS_MULT, DETAIL_NOISE_DAMPEN_STRENGTH, PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX, REBOUND_DEFAULT, DEPOSITION_DEFAULT, NUM_HOTSPOTS } from './terrain-config.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -227,7 +227,7 @@ function riverPrecipWeight(precipResult) {
 }
 
 function handleGenerate(data) {
-    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, seed: overrideSeed, toggledIndices, skipClimate } = data;
+    const { N, P, jitter, nMag, numContinents, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, terrainWarp, rebound = REBOUND_DEFAULT, deposition = DEPOSITION_DEFAULT, numHotspots = NUM_HOTSPOTS, continentSizeVariety = 0, temperatureOffset = 0, precipitationOffset = 0, landCoverage = 0.3, seed: overrideSeed, toggledIndices, skipClimate } = data;
     const spread = 5;
     const timing = []; // top-level pipeline timing
 
@@ -341,7 +341,7 @@ function handleGenerate(data) {
         progress(35, 'Raising mountains\u2026');
         t0 = performance.now();
         const { r_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers, _timing } =
-            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, plateDensity, superPlateData, r_mantleField);
+            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, plateDensity, superPlateData, r_mantleField, numHotspots);
         timing.push({ stage: 'Elevation (collisions + stress + distance fields + assignment)', ms: performance.now() - t0 });
 
         const prePostElev = new Float32Array(r_elevation);
@@ -509,7 +509,7 @@ function handleGenerate(data) {
             _pipelineTiming: timing,          // top-level pipeline stages
             _postTiming: postTiming,          // post-processing sub-stages
             _workerTotal: tWorkerTotal,
-            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, rebound, deposition, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
+            _params: { N, P, jitter, nMag, numContinents, smoothing, terrainWarp, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, rebound, deposition, numHotspots, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, seed },
             terrainMetrics
         };
 
@@ -674,7 +674,7 @@ function handleEditRecompute(data) {
 
         let t0 = performance.now();
         const { r_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers, _timing } =
-            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, W.plateDensity, superPlateData);
+            assignElevation(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds, noise, nMag, seed, spread, W.plateDensity, superPlateData, undefined, data.numHotspots);
         const tElev = performance.now() - t0;
 
         const prePostElev = new Float32Array(r_elevation);

@@ -11,7 +11,7 @@ import { computePrecipitation } from './precipitation.js';
 import { computeTemperature } from './temperature.js';
 import { classifyKoppen } from './koppen.js';
 import { classifyTrewartha } from './trewartha.js';
-import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX, DEPOSITION_DEFAULT } from './terrain-config.js';
+import { PLATE_SMOOTH_HIRES_KM, SOIL_CREEP_KM, LITHO_EROSION_STRENGTH, LITHO_CRATON_RESIST, LITHO_BASIN_SOFTEN, LITHO_HARDNESS_MIN, LITHO_HARDNESS_MAX } from './terrain-config.js';
 
 // Main thread still needs Delaunator for SphereMesh reconstruction
 setDelaunator(Delaunator);
@@ -34,6 +34,9 @@ function readSliders() {
         temperatureOffset: +document.getElementById('sTmp').value,
         precipitationOffset: +document.getElementById('sPrc').value,
         landCoverage: +document.getElementById('sLc').value,
+        deposition: +document.getElementById('sDp').value,
+        rebound: +document.getElementById('sRb').value,
+        numHotspots: +document.getElementById('sHs').value,
     };
 }
 
@@ -48,6 +51,9 @@ function readSlidersOptional() {
         thermalErosion: +(document.getElementById('sTEr')?.value ?? 0),
         ridgeSharpening: +(document.getElementById('sRs')?.value ?? 0),
         glacialErosion: +(document.getElementById('sGl')?.value ?? 0),
+        deposition: +(document.getElementById('sDp')?.value ?? 0.5),
+        rebound: +(document.getElementById('sRb')?.value ?? 0.35),
+        numHotspots: +(document.getElementById('sHs')?.value ?? 5),
     };
 }
 
@@ -737,7 +743,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
     // Dynamic import already resolved — run synchronously via rAF stages
     const m = _fallbackModules;
     const btn = document.getElementById('generate');
-    const { N, P, jitter, nMag, numContinents, terrainWarp, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage } = readSliders();
+    const { N, P, jitter, nMag, numContinents, terrainWarp, smoothing, hydraulicErosion, thermalErosion, ridgeSharpening, glacialErosion, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, deposition, numHotspots } = readSliders();
     const progress = onProgress || (() => {});
     const ctx = {};
 
@@ -789,7 +795,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
         }},
         { pct: 35, label: 'Raising mountains\u2026', work() {
             const { r_elevation, mountain_r, coastline_r, ocean_r, r_stress, debugLayers, _timing } =
-                m.elev.assignElevation(ctx.mesh, ctx.r_xyz, ctx.plateIsOcean, ctx.r_plate, ctx.plateVec, ctx.plateSeeds, ctx.noise, nMag, ctx.seed, 5, ctx.plateDensity);
+                m.elev.assignElevation(ctx.mesh, ctx.r_xyz, ctx.plateIsOcean, ctx.r_plate, ctx.plateVec, ctx.plateSeeds, ctx.noise, nMag, ctx.seed, 5, ctx.plateDensity, undefined, undefined, numHotspots);
             ctx.r_elevation = r_elevation; ctx.mountain_r = mountain_r; ctx.coastline_r = coastline_r;
             ctx.ocean_r = ocean_r; ctx.r_stress = r_stress; ctx.debugLayers = debugLayers;
             ctx.prePostElev = new Float32Array(r_elevation);
@@ -839,7 +845,7 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
             if (glacialErosion > 0 || hydraulicErosion > 0 || thermalErosion > 0)
                 // neighborDist arg (unchanged from prior behavior): this fallback path never
                 // computed it, so it stays undefined here — r_erodibility/deposition are trailing args.
-                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, undefined, r_erodibility, DEPOSITION_DEFAULT);
+                m.post.erodeComposite(ctx.mesh, r_elevation, ctx.r_xyz, r_isOcean, Math.round(hydraulicErosion * 20), hydraulicErosion * 0.0006, 0.5, 1.0, Math.round(thermalErosion * 10), 1.2 - thermalErosion * 0.4, thermalErosion * 0.15, Math.round(glacialErosion * 10), glacialErosion, undefined, r_erodibility, deposition);
             if (ridgeSharpening > 0) m.post.sharpenRidges(ctx.mesh, r_elevation, r_isOcean, Math.round(1 + ridgeSharpening * 3), ridgeSharpening * 0.08);
             const creepPasses = Math.max(1, Math.round(SOIL_CREEP_KM / ((Math.PI * 6371) / Math.sqrt(ctx.mesh.numRegions))));
             m.post.applySoilCreep(ctx.mesh, r_elevation, r_isOcean, creepPasses, 0.1125);
@@ -997,14 +1003,14 @@ export function editRecomputeViaWorker(onDone, skipClimate = false) {
     _onDone = onDone || null;
     _t0 = performance.now();
 
-    const { nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, temperatureOffset, precipitationOffset, landCoverage } = readSliders();
+    const { nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots } = readSliders();
 
     worker.postMessage({
         cmd: 'editRecompute',
         plateIsOcean: Array.from(d.plateIsOcean),
         plateDensity: d.plateDensity,
         nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening,
-        temperatureOffset, precipitationOffset, landCoverage,
+        temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots,
         skipClimate
     });
 }

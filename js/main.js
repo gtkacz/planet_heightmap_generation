@@ -15,7 +15,7 @@ import { TREWARTHA_CLASSES } from './trewartha.js';
 import { elevationToColor } from './color-map.js';
 
 // Slider value displays + stale tracking
-const sliderIds = ['sN','sP','sCn','sJ','sNs','sCsv','sLc'];
+const sliderIds = ['sN','sP','sCn','sJ','sNs','sCsv','sLc','sHs'];
 const PLATE_SLIDERS = ['sP', 'sCn', 'sCsv', 'sLc'];
 let lastGenValues = {};
 
@@ -26,7 +26,7 @@ function snapshotSliders() {
 function checkStale() {
     const btn = document.getElementById('generate');
     if (btn.classList.contains('generating')) return;
-    const detailSliders = ['sN', 'sJ', 'sNs'];
+    const detailSliders = ['sN', 'sJ', 'sNs', 'sHs'];
     const plateChanged = PLATE_SLIDERS.some(id => document.getElementById(id).value !== lastGenValues[id]);
     const detailChanged = detailSliders.some(id => document.getElementById(id).value !== lastGenValues[id]);
     btn.classList.remove('stale', 'regen');
@@ -134,7 +134,7 @@ function initSliderTooltip(slider) {
     slider.addEventListener('pointercancel', hide);
 }
 
-for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','vNs'],['sCsv','vCsv'],['sLc','vLc'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs'],['sTmp','vTmp'],['sPrc','vPrc']]) {
+for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','vNs'],['sCsv','vCsv'],['sLc','vLc'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs'],['sDp','vDp'],['sRb','vRb'],['sHs','vHs'],['sTmp','vTmp'],['sPrc','vPrc']]) {
     const slider = document.getElementById(s);
     initSliderTooltip(slider);
     slider.addEventListener('input', e => {
@@ -154,7 +154,7 @@ for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','v
         } else {
             document.getElementById(v).textContent = e.target.value;
         }
-        if (s === 'sTw' || s === 'sS' || s === 'sGl' || s === 'sHEr' || s === 'sTEr' || s === 'sRs') {
+        if (s === 'sTw' || s === 'sS' || s === 'sGl' || s === 'sHEr' || s === 'sTEr' || s === 'sRs' || s === 'sDp' || s === 'sRb') {
             markReapplyPending();
         } else if (s === 'sTmp' || s === 'sPrc') {
             // Display-only update during drag; actual recompute on change (release)
@@ -569,6 +569,9 @@ function updatePlanetCode(flash) {
         +document.getElementById('sTmp').value,
         +document.getElementById('sPrc').value,
         +document.getElementById('sLc').value,
+        +document.getElementById('sDp').value,
+        +document.getElementById('sRb').value,
+        +document.getElementById('sHs').value,
         getToggledIndices()
     );
     currentCode = code;
@@ -642,6 +645,7 @@ function paramsToSliderMap(params) {
         sHEr: params.hydraulicErosion, sTEr: params.thermalErosion,
         sRs: params.ridgeSharpening, sTmp: params.temperatureOffset,
         sPrc: params.precipitationOffset,
+        sDp: params.deposition, sRb: params.rebound, sHs: params.numHotspots,
     };
 }
 

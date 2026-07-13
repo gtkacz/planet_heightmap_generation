@@ -195,6 +195,11 @@
                     <div class="slider-hint"><span>Equal</span><span>Varied</span></div>
                 </div>
                 <div class="cg">
+                    <label>Hotspots <span class="tip" data-tip="Number of mantle hotspots — each spawns a volcanic island chain or continental volcanic field">?</span> <span class="v" id="vHs">5</span></label>
+                    <input type="range" id="sHs" min="0" max="12" value="5" step="1">
+                    <div class="slider-hint"><span>None</span><span>Volcanic World</span></div>
+                </div>
+                <div class="cg">
                     <label>Land Coverage <span class="tip" data-tip="Percentage of the planet covered by land — low values create ocean worlds, high values create desert worlds with reduced precipitation">?</span> <span class="v" id="vLc">30%</span></label>
                     <input type="range" id="sLc" min="0" max="1" value="0.3" step="0.01">
                     <div class="slider-hint"><span>Ocean World</span><span>Desert World</span></div>
@@ -240,6 +245,16 @@
                     <label>Ridge Sharpening <span class="tip" data-tip="Accentuates mountain ridgelines — pushes peaks further above their surroundings for more dramatic terrain">?</span> <span class="v" id="vRs">0.50</span></label>
                     <input type="range" id="sRs" min="0" max="1" value="0.50" step="0.05">
                     <div class="slider-hint"><span>None</span><span>Jagged</span></div>
+                </div>
+                <div class="cg">
+                    <label>Deposition <span class="tip" data-tip="Where eroded sediment settles — low exports it to the sea for sharp canyons, high builds floodplains and river deltas">?</span> <span class="v" id="vDp">0.50</span></label>
+                    <input type="range" id="sDp" min="0" max="1" value="0.5" step="0.05">
+                    <div class="slider-hint"><span>Canyons</span><span>Deltas</span></div>
+                </div>
+                <div class="cg">
+                    <label>Rebound <span class="tip" data-tip="Isostatic rebound — the crust flexes back up where erosion removes weight, letting old mountain ranges keep broad relief">?</span> <span class="v" id="vRb">0.35</span></label>
+                    <input type="range" id="sRb" min="0" max="1" value="0.35" step="0.05">
+                    <div class="slider-hint"><span>None</span><span>Strong</span></div>
                 </div>
                 <button id="reapplyBtn" title="Reapply terrain sculpting" disabled><span class="reapply-icon">&#x21bb;</span> Reapply</button>
             </div>
