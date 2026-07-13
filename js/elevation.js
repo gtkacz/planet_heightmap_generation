@@ -79,7 +79,7 @@ import {
     ABYSS_BASE, ABYSS_NOISE_AMP, OCEAN_FLOOR_CLAMP,
     RIDGE_AGE_DEPTH_SCALE, RIDGE_AGE_SATURATION_KM, RIDGE_AGE_MEAN_FRAC,
     RIDGE_HALF_WIDTH_BASE as RIDGE_HW_BASE, RIDGE_UPLIFT_NOISE, RIDGE_UPLIFT_BASE,
-    FRACTURE_HALF_WIDTH_BASE, FRACTURE_DEPTH,
+    FRACTURE_HALF_WIDTH_BASE, FRACTURE_DEPTH, TRANSFORM_OFFSET_KM,
     TRENCH_BASE_DEPTH, TRENCH_STRESS_DEPTH,
     TRENCH_HALF_WIDTH_BASE, TRENCH_OUTER_RISE_EXTENT, TRENCH_OUTER_RISE_HEIGHT,
     COAST_ROUGHEN_BASE, COAST_PASSIVE_FREQ, COAST_ACTIVE_FREQ,
@@ -714,11 +714,23 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, su
     // Fracture zone BFS (oceanic transform)
     const fractureHalfWidth = Math.max(2, Math.round(FRACTURE_HALF_WIDTH_BASE * scaleFactor));
     const fractureDist = new Float32Array(numRegions).fill(Infinity);
+    // Side tag (±1) for the transform-fault texture offset: which side of
+    // the fault a cell is on, so the offset shifts opposite ways across it.
+    const fractureSide = new Int8Array(numRegions);
     const fractureSeeds = [];
     for (let r = 0; r < numRegions; r++) {
         if (r_boundaryType[r] === 3 && r_bothOcean[r]) {
             fractureSeeds.push(r);
             fractureDist[r] = 0;
+            let side = 1;
+            for (let ni = adjOffset[r], niEnd = adjOffset[r + 1]; ni < niEnd; ni++) {
+                const nr = adjList[ni];
+                if (r_plate[nr] !== r_plate[r]) {
+                    side = r_plate[r] < r_plate[nr] ? 1 : -1;
+                    break;
+                }
+            }
+            fractureSide[r] = side;
         }
     }
     {
@@ -731,6 +743,7 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, su
                 const nr = adjList[ni];
                 if (nd < fractureDist[nr] && r_isOcean[nr]) {
                     fractureDist[nr] = nd;
+                    fractureSide[nr] = fractureSide[r];
                     fractureSeeds.push(nr);
                 }
             }
@@ -806,7 +819,7 @@ function computeSpatialFields(mesh, r_xyz, r_plate, plateIsOcean, tect, seed, su
         dBdry, coastStressMax, coastSubductMax, coastConvergent, maxCD,
         riftDist, riftHalfWidth,
         ridgeDist, ridgeHalfWidth,
-        fractureDist, fractureHalfWidth,
+        fractureDist, fractureHalfWidth, fractureSide,
         backArcDist, backArcStress, baStart, baPeak, baEnd,
         trenchDist, trenchStress, trenchHW, trenchOuterEnd,
         interiorBand:    Math.max(4, Math.round(INTERIOR_BAND_BASE * scaleFactor)),
@@ -910,7 +923,7 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
     const { r_isOcean, dist_mountain, dist_ocean, dist_coastline, dist_coast, dist_coast_land,
             dBdry, coastConvergent, maxCD,
             riftDist, riftHalfWidth, ridgeDist, ridgeHalfWidth,
-            fractureDist, fractureHalfWidth,
+            fractureDist, fractureHalfWidth, fractureSide,
             backArcDist, backArcStress, baStart, baPeak, baEnd,
             trenchDist, trenchStress, trenchHW, trenchOuterEnd,
             interiorBand, tectonicReach, plateauStart,
@@ -1191,6 +1204,24 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
         } else {
             // ───── OCEAN ─────
             const dc = dist_coast[r];
+
+            // Transform-fault juxtaposition: sample abyssal noise from a
+            // tangentially shifted position on each side of the fault.
+            let nsx = x, nsy = y, nsz = z;
+            if (TRANSFORM_OFFSET_KM > 0) {
+                const fdo = fractureDist[r];
+                if (fdo !== Infinity && fdo <= fractureHalfWidth * 2) {
+                    const v = plateVelocityAt(plateVec, r_plate[r], x, y, z);
+                    const vLen = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                    if (vLen > 1e-9) {
+                        const off = fractureSide[r] * (TRANSFORM_OFFSET_KM / 6371) * (1 - fdo / (fractureHalfWidth * 2));
+                        nsx = x + (v[0] / vLen) * off;
+                        nsy = y + (v[1] / vLen) * off;
+                        nsz = z + (v[2] / vLen) * off;
+                    }
+                }
+            }
+
             const isActiveMarginShelf = coastConvergent[r] === 1;
             const shelfWidth = isActiveMarginShelf
                 ? Math.max(2, Math.round(SHELF_NARROW_BASE * scaleFactor))
@@ -1204,7 +1235,7 @@ function buildSkeleton(mesh, r_xyz, plateIsOcean, r_plate, plateVec, plateSeeds,
             } else if (dc < totalMargin) {
                 oceanBase = (SHELF_DEPTH_START - SHELF_DEPTH_RANGE) - SLOPE_DEPTH_RANGE * ((dc - shelfWidth) / slopeWidth);
             } else {
-                oceanBase = ABYSS_BASE + noise.fbm(x * 2, y * 2, z * 2, 3) * ABYSS_NOISE_AMP;
+                oceanBase = ABYSS_BASE + noise.fbm(nsx * 2, nsy * 2, nsz * 2, 3) * ABYSS_NOISE_AMP;
             }
 
             r_elevation[r] = Math.min(r_elevation[r], oceanBase);

@@ -300,6 +300,11 @@ export const RIDGE_UPLIFT_NOISE = 0.12;
 export const RIDGE_UPLIFT_BASE = 0.06;
 export const FRACTURE_HALF_WIDTH_BASE = 3;
 export const FRACTURE_DEPTH = 0.03;
+// Transform-fault texture offset: noise-sampling coordinates shift
+// tangentially (along plate motion) by ± this many km across the fault,
+// juxtaposing mismatched abyssal texture — a stylized visual cue, not
+// physical displacement. 0 = off.
+export const TRANSFORM_OFFSET_KM = 60;
 export const TRENCH_BASE_DEPTH = 0.20;
 export const TRENCH_STRESS_DEPTH = 0.20;
 // Trench spatial profile: half-width band (hops × scaleFactor, like the
