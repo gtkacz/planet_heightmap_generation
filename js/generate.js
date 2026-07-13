@@ -22,6 +22,23 @@ import {
 // Main thread still needs Delaunator for SphereMesh reconstruction
 setDelaunator(Delaunator);
 
+// Climate-only slider values; optional-chained so pages without the climate
+// panel (and Task-1-era code before the sliders exist) fall back to defaults.
+function readClimateSliders() {
+    return {
+        temperatureOffset: +(document.getElementById('sTmp')?.value ?? 0),
+        precipitationOffset: +(document.getElementById('sPrc')?.value ?? 0),
+        landCoverage: +(document.getElementById('sLc')?.value ?? 0.3),
+        axialTilt: +(document.getElementById('sTilt')?.value ?? 23.5),
+        rotationRate: +(document.getElementById('sRot')?.value ?? 1),
+        greenhouse: +(document.getElementById('sGh')?.value ?? 0),
+        winterSeverity: +(document.getElementById('sWs')?.value ?? 1),
+        orographicRain: +(document.getElementById('sOro')?.value ?? 1),
+        maritimeInfluence: +(document.getElementById('sMar')?.value ?? 1),
+        mountainChill: +(document.getElementById('sLap')?.value ?? 1),
+    };
+}
+
 // Read all slider values from the DOM into a params object
 function readSliders() {
     return {
@@ -37,9 +54,7 @@ function readSliders() {
         ridgeSharpening: +document.getElementById('sRs').value,
         glacialErosion: +document.getElementById('sGl').value,
         continentSizeVariety: +document.getElementById('sCsv').value,
-        temperatureOffset: +document.getElementById('sTmp').value,
-        precipitationOffset: +document.getElementById('sPrc').value,
-        landCoverage: +document.getElementById('sLc').value,
+        ...readClimateSliders(),
         deposition: +document.getElementById('sDp').value,
         rebound: +document.getElementById('sRb').value,
         numHotspots: +document.getElementById('sHs').value,
@@ -1022,13 +1037,11 @@ export function reapplyViaWorker(onDone, skipClimate = false) {
     _t0 = performance.now();
 
     const s = readSlidersOptional();
-    const temperatureOffset = +(document.getElementById('sTmp')?.value ?? 0);
-    const precipitationOffset = +(document.getElementById('sPrc')?.value ?? 0);
-    const landCoverage = +(document.getElementById('sLc')?.value ?? 0.3);
+    const climate = readClimateSliders();
 
     worker.postMessage({
         cmd: 'reapply',
-        ...s, temperatureOffset, precipitationOffset, landCoverage,
+        ...s, ...climate,
         skipClimate
     });
 }
@@ -1041,7 +1054,7 @@ export function editRecomputeViaWorker(onDone, skipClimate = false) {
     _onDone = onDone || null;
     _t0 = performance.now();
 
-    const { nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots } = readSliders();
+    const { nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, deposition, rebound, numHotspots } = readSliders();
 
     worker.postMessage({
         cmd: 'editRecompute',
@@ -1049,7 +1062,8 @@ export function editRecomputeViaWorker(onDone, skipClimate = false) {
         plateDensity: d.plateDensity,
         motionOverrides: plateOverridesToRecords(d.motionOverrides || new Map(), d.plateSeeds),
         nMag, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening,
-        temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots,
+        deposition, rebound, numHotspots,
+        ...readClimateSliders(),
         skipClimate
     });
 }
@@ -1059,13 +1073,10 @@ export function computeClimateViaWorker(onProgress, onDone) {
     _onProgress = onProgress || (() => {});
     _onDone = onDone || null;
     _t0 = performance.now();
-    const temperatureOffset = +(document.getElementById('sTmp')?.value ?? 0);
-    const precipitationOffset = +(document.getElementById('sPrc')?.value ?? 0);
-    const landCoverage = +(document.getElementById('sLc')?.value ?? 0.3);
 
     worker.postMessage({
         cmd: 'computeClimate',
-        temperatureOffset, precipitationOffset, landCoverage
+        ...readClimateSliders()
     });
 }
 

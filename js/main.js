@@ -140,7 +140,10 @@ function initSliderTooltip(slider) {
     slider.addEventListener('pointercancel', hide);
 }
 
-for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','vNs'],['sCsv','vCsv'],['sLc','vLc'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs'],['sDp','vDp'],['sRb','vRb'],['sHs','vHs'],['sTmp','vTmp'],['sPrc','vPrc']]) {
+// Climate sliders recompute climate-only on release (change), not per drag tick
+const CLIMATE_SLIDER_IDS = new Set(['sTmp', 'sPrc', 'sTilt', 'sRot', 'sGh', 'sWs', 'sOro', 'sMar', 'sLap']);
+
+for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','vNs'],['sCsv','vCsv'],['sLc','vLc'],['sTw','vTw'],['sS','vS'],['sGl','vGl'],['sHEr','vHEr'],['sTEr','vTEr'],['sRs','vRs'],['sDp','vDp'],['sRb','vRb'],['sHs','vHs'],['sTmp','vTmp'],['sPrc','vPrc'],['sTilt','vTilt'],['sRot','vRot'],['sGh','vGh'],['sWs','vWs'],['sOro','vOro'],['sMar','vMar'],['sLap','vLap']]) {
     const slider = document.getElementById(s);
     initSliderTooltip(slider);
     slider.addEventListener('input', e => {
@@ -157,19 +160,26 @@ for (const [s,v] of [['sN','vN'],['sP','vP'],['sCn','vCn'],['sJ','vJ'],['sNs','v
             document.getElementById(v).textContent = (pct > 0 ? '+' : pct === 0 ? '\u00b1' : '') + pct + '%';
         } else if (s === 'sLc') {
             document.getElementById(v).textContent = Math.round(+e.target.value * 100) + '%';
+        } else if (s === 'sTilt') {
+            document.getElementById(v).textContent = (+e.target.value).toFixed(1).replace(/\.0$/, '') + '°';
+        } else if (s === 'sGh') {
+            const val = +e.target.value;
+            document.getElementById(v).textContent = (val > 0 ? '+' : val === 0 ? '±' : '') + val.toFixed(1);
+        } else if (s === 'sRot' || s === 'sWs' || s === 'sOro' || s === 'sMar' || s === 'sLap') {
+            document.getElementById(v).textContent = (+e.target.value).toFixed(1) + '×';
         } else {
             document.getElementById(v).textContent = e.target.value;
         }
         if (s === 'sTw' || s === 'sS' || s === 'sGl' || s === 'sHEr' || s === 'sTEr' || s === 'sRs' || s === 'sDp' || s === 'sRb') {
             markReapplyPending();
-        } else if (s === 'sTmp' || s === 'sPrc') {
+        } else if (CLIMATE_SLIDER_IDS.has(s)) {
             // Display-only update during drag; actual recompute on change (release)
         } else {
             checkStale();
         }
     });
     // Climate sliders: recompute only on release (change), not every drag tick
-    if (s === 'sTmp' || s === 'sPrc') {
+    if (CLIMATE_SLIDER_IDS.has(s)) {
         slider.addEventListener('change', () => {
             if (!state.curData) return;
             updatePlanetCode(false);
@@ -586,6 +596,13 @@ function updatePlanetCode(flash) {
         +document.getElementById('sDp').value,
         +document.getElementById('sRb').value,
         +document.getElementById('sHs').value,
+        +document.getElementById('sTilt').value,
+        +document.getElementById('sRot').value,
+        +document.getElementById('sGh').value,
+        +document.getElementById('sWs').value,
+        +document.getElementById('sOro').value,
+        +document.getElementById('sMar').value,
+        +document.getElementById('sLap').value,
         getToggledIndices(),
         getMotionOverrideRecords()
     );
@@ -661,6 +678,9 @@ function paramsToSliderMap(params) {
         sRs: params.ridgeSharpening, sTmp: params.temperatureOffset,
         sPrc: params.precipitationOffset,
         sDp: params.deposition, sRb: params.rebound, sHs: params.numHotspots,
+        sTilt: params.axialTilt, sRot: params.rotationRate, sGh: params.greenhouse,
+        sWs: params.winterSeverity, sOro: params.orographicRain,
+        sMar: params.maritimeInfluence, sLap: params.mountainChill,
     };
 }
 
@@ -1328,7 +1348,7 @@ window.addEventListener('resize', () => {
 
 // What's New modal — shown once per version for returning users
 (function initWhatsNew() {
-    const VERSION    = '5';
+    const VERSION    = '6';
     const LS_KEY     = 'wo-whatsnew-seen';
     const LS_TUTORIAL = 'atlas-engine-tutorial-seen';
     const overlay    = document.getElementById('whatsNewOverlay');
