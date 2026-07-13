@@ -553,13 +553,20 @@ export function computeWind(mesh, r_xyz, r_elevation, plateIsOcean, r_plate, noi
     // Seasonal-contrast quantities scale with tilt (×1 at Earth tilt, 0 at 0°):
     // band migration, monsoon thermal low, and the winter continental high are
     // all consequences of the seasonal insolation swing.
+    // Fast rotators: stronger Coriolis turning and equator-compressed bands
+    // (Hadley width shrinks with spin); slow rotators widen the tropical cell.
+    // Math.pow(1, x) === 1, so ρ = 1 is exact without a guard; the deflection
+    // map subtracts, so it does need one.
+    const bandScale = Math.pow(rotationRate, -1 / 3);
     const effWind = {
         subtropShiftDeg: CLIMATE.WIND_SUBTROP_SEASONAL_SHIFT_DEG * seasonFactor,
         thermalLowHpa: CLIMATE.WIND_SUMMER_THERMAL_LOW_HPA * seasonFactor,
         thermalHighHpa: CLIMATE.WIND_WINTER_THERMAL_HIGH_HPA * seasonFactor,
-        subtropHighLatDeg: CLIMATE.WIND_SUBTROP_HIGH_LAT_DEG,
-        subpolarLowLatDeg: CLIMATE.WIND_SUBPOLAR_LOW_LAT_DEG,
-        geoMaxAngleDeg: CLIMATE.WIND_GEOSTROPHIC_MAX_ANGLE_DEG,
+        subtropHighLatDeg: Math.min(42, Math.max(22, CLIMATE.WIND_SUBTROP_HIGH_LAT_DEG * bandScale)),
+        subpolarLowLatDeg: Math.min(72, Math.max(44, CLIMATE.WIND_SUBPOLAR_LOW_LAT_DEG * bandScale)),
+        geoMaxAngleDeg: rotationRate === 1
+            ? CLIMATE.WIND_GEOSTROPHIC_MAX_ANGLE_DEG
+            : 90 - (90 - CLIMATE.WIND_GEOSTROPHIC_MAX_ANGLE_DEG) * Math.pow(rotationRate, -0.8),
     };
     const timing = [];
 
