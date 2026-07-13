@@ -538,6 +538,13 @@ function updatePlanetCode(flash) {
         +document.getElementById('sTmp').value,
         +document.getElementById('sPrc').value,
         +document.getElementById('sLc').value,
+        +document.getElementById('sTilt').value,
+        +document.getElementById('sRot').value,
+        +document.getElementById('sGh').value,
+        +document.getElementById('sWs').value,
+        +document.getElementById('sOro').value,
+        +document.getElementById('sMar').value,
+        +document.getElementById('sLap').value,
         getToggledIndices()
     );
     currentCode = code;
@@ -611,6 +618,9 @@ function paramsToSliderMap(params) {
         sHEr: params.hydraulicErosion, sTEr: params.thermalErosion,
         sRs: params.ridgeSharpening, sTmp: params.temperatureOffset,
         sPrc: params.precipitationOffset,
+        sTilt: params.axialTilt, sRot: params.rotationRate, sGh: params.greenhouse,
+        sWs: params.winterSeverity, sOro: params.orographicRain,
+        sMar: params.maritimeInfluence, sLap: params.mountainChill,
     };
 }
 
