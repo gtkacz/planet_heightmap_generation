@@ -1,0 +1,50 @@
+{
+  "seed42-d5k": {
+    "r_elevation": "5001:7ade00fda7aa5",
+    "t_elevation": "9998:8d2220f1cac5a",
+    "r_precip_summer": "5001:d1dd9ef4f725b",
+    "r_precip_winter": "5001:a0c2744bf7cb5",
+    "r_temperature_summer": "5001:1d6c2aa5e7f630",
+    "r_temperature_winter": "5001:15a800887444b0"
+  },
+  "seed42-d50k": {
+    "r_elevation": "11001:d4469d0191cff",
+    "t_elevation": "21998:1cf65bd7e14a51",
+    "r_precip_summer": "11001:1744370d666d6f",
+    "r_precip_winter": "11001:15cc0456a9ddcd",
+    "r_temperature_summer": "11001:1940cbfecd2366",
+    "r_temperature_winter": "11001:10c504773b11e1"
+  },
+  "seed42-d200k": {
+    "r_elevation": "64001:4e227a1aaeb28",
+    "t_elevation": "127998:14f9e1328fe707",
+    "r_precip_summer": "64001:9164c5e555e25",
+    "r_precip_winter": "64001:7b1a0efe2652a",
+    "r_temperature_summer": "64001:3a3cd32bfc241",
+    "r_temperature_winter": "64001:9a82f686f4b42"
+  },
+  "seed100-d50k": {
+    "r_elevation": "11001:11e8838406dc12",
+    "t_elevation": "21998:192382b2a6502d",
+    "r_precip_summer": "11001:a8fb1e777b24c",
+    "r_precip_winter": "11001:748953095552",
+    "r_temperature_summer": "11001:8a4cc6996432f",
+    "r_temperature_winter": "11001:1d2fdc2a4d7850"
+  },
+  "seed200-d50k": {
+    "r_elevation": "11001:1c4e3529214fbd",
+    "t_elevation": "21998:5906b665c230e",
+    "r_precip_summer": "11001:e0253eedf00dc",
+    "r_precip_winter": "11001:172cf1385e9441",
+    "r_temperature_summer": "11001:a95b49386cbc0",
+    "r_temperature_winter": "11001:1fbd492dc2196b"
+  },
+  "seed300-d50k": {
+    "r_elevation": "11001:c8593fcf0a07",
+    "t_elevation": "21998:5dc56229ce7f2",
+    "r_precip_summer": "11001:108972984d8904",
+    "r_precip_winter": "11001:672fc95c12da5",
+    "r_temperature_summer": "11001:12a3c97809d2ff",
+    "r_temperature_winter": "11001:1623ffcbb3669b"
+  }
+}
