@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { renderer, scene, waterMesh, atmosMesh, starsMesh } from './scene.js';
 import { state } from './state.js';
-import { elevationToColor, elevToHeightKm, biomeColor } from './color-map.js';
+import { elevationToColor, elevToHeightKm, biomeColor, cloudColor } from './color-map.js';
 import { makeRng } from './rng.js';
 import { KOPPEN_CLASSES } from './koppen.js';
 
@@ -325,6 +325,8 @@ export function buildMapMesh() {
     const rainShadowArr = isRainShadow ? (debugLayers && debugLayers[debugLayer]) : null;
     const isTemp = debugLayer === 'tempSummer' || debugLayer === 'tempWinter';
     const tempArr = isTemp ? (debugLayers && debugLayers[debugLayer]) : null;
+    const isCloud = debugLayer === 'cloudSummer' || debugLayer === 'cloudWinter';
+    const cloudArr = isCloud ? (debugLayers && debugLayers[debugLayer]) : null;
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
@@ -332,7 +334,7 @@ export function buildMapMesh() {
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -391,6 +393,8 @@ export function buildMapMesh() {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
             } else if (isTemp && tempArr) {
                 [cr, cg, cb] = temperatureColor(tempArr[br]);
+            } else if (isCloud && cloudArr) {
+                [cr, cg, cb] = cloudColor(cloudArr[br]);
             } else if (isPrecip && precipArr) {
                 [cr, cg, cb] = precipitationColor(precipArr[br]);
             } else if (isRainShadow && rainShadowArr) {
@@ -760,6 +764,8 @@ export function buildMesh() {
     const rainShadowArr = isRainShadow ? (debugLayers && debugLayers[debugLayer]) : null;
     const isTemp = debugLayer === 'tempSummer' || debugLayer === 'tempWinter';
     const tempArr = isTemp ? (debugLayers && debugLayers[debugLayer]) : null;
+    const isCloud = debugLayer === 'cloudSummer' || debugLayer === 'cloudWinter';
+    const cloudArr = isCloud ? (debugLayers && debugLayers[debugLayer]) : null;
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
@@ -767,7 +773,7 @@ export function buildMesh() {
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -856,6 +862,8 @@ export function buildMesh() {
                 [cr, cg, cb] = koppenColor(koppenArr[br]);
             } else if (isTemp && tempArr) {
                 [cr, cg, cb] = temperatureColor(tempArr[br]);
+            } else if (isCloud && cloudArr) {
+                [cr, cg, cb] = cloudColor(cloudArr[br]);
             } else if (isPrecip && precipArr) {
                 [cr, cg, cb] = precipitationColor(precipArr[br]);
             } else if (isRainShadow && rainShadowArr) {
@@ -1000,6 +1008,8 @@ export function updateMeshColors() {
     const rainShadowArr = isRainShadow ? (debugLayers && debugLayers[debugLayer]) : null;
     const isTemp = debugLayer === 'tempSummer' || debugLayer === 'tempWinter';
     const tempArr = isTemp ? (debugLayers && debugLayers[debugLayer]) : null;
+    const isCloud = debugLayer === 'cloudSummer' || debugLayer === 'cloudWinter';
+    const cloudArr = isCloud ? (debugLayers && debugLayers[debugLayer]) : null;
     const isKoppen = debugLayer === 'koppen';
     const isBiome = debugLayer === 'biome';
     const koppenArr = (isKoppen || isBiome) ? (debugLayers && debugLayers.koppen) : null;
@@ -1007,7 +1017,7 @@ export function updateMeshColors() {
     const contArr = isCont ? (debugLayers && debugLayers.continentality) : null;
     const isTempCont = debugLayer === 'tempContinentality';
     const tempContArr = isTempCont ? (debugLayers && debugLayers.tempContinentality) : null;
-    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
+    if (!isHeightmap && !isLandHeightmap && !isOceanCurrent && !isPrecip && !isRainShadow && !isTemp && !isCloud && !isKoppen && !isBiome && !isCont && !isTempCont && debugLayer && debugLayers && debugLayers[debugLayer]) {
         dbgArr = debugLayers[debugLayer];
         for (let r = 0; r < mesh.numRegions; r++) {
             if (dbgArr[r] < dbgMin) dbgMin = dbgArr[r];
@@ -1025,6 +1035,7 @@ export function updateMeshColors() {
         if (isTempCont && tempContArr) return tempContinentalityColor(tempContArr[br]);
         if (isKoppen && koppenArr) return koppenColor(koppenArr[br]);
         if (isTemp && tempArr) return temperatureColor(tempArr[br]);
+        if (isCloud && cloudArr) return cloudColor(cloudArr[br]);
         if (isPrecip && precipArr) return precipitationColor(precipArr[br]);
         if (isRainShadow && rainShadowArr) return rainShadowColor(rainShadowArr[br]);
         if (isOceanCurrent && oceanWarmth && oceanSpeed) return oceanCurrentColor(oceanWarmth[br], oceanSpeed[br], r_elevation[br] <= 0);

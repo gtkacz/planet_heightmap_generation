@@ -371,6 +371,8 @@ function handleGenerate(data) {
             if (tempResult._tempTiming) timing.push(...tempResult._tempTiming);
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.cloudSummer = tempResult.r_cloud_summer;
+            debugLayers.cloudWinter = tempResult.r_cloud_winter;
             debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             t0 = performance.now();
@@ -555,6 +557,8 @@ function handleReapply(data) {
                 rainShadowWinter: precipResult.r_rainshadow_winter,
                 tempSummer: tempResult.r_temperature_summer,
                 tempWinter: tempResult.r_temperature_winter,
+                cloudSummer: tempResult.r_cloud_summer,
+                cloudWinter: tempResult.r_cloud_winter,
                 koppen: classifyKoppen(W.mesh, r_elevation, tempResult, precipResult)
             } : null,
             _reapplyTiming: {
@@ -657,6 +661,8 @@ function handleEditRecompute(data) {
             tTemp = performance.now() - t0;
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.cloudSummer = tempResult.r_cloud_summer;
+            debugLayers.cloudWinter = tempResult.r_cloud_winter;
             debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             debugLayers.koppen = classifyKoppen(mesh, r_elevation, tempResult, precipResult);
@@ -778,6 +784,8 @@ function handleComputeClimate(data) {
             rainShadowWinter: precipResult.r_rainshadow_winter,
             tempSummer: tempResult.r_temperature_summer,
             tempWinter: tempResult.r_temperature_winter,
+            cloudSummer: tempResult.r_cloud_summer,
+            cloudWinter: tempResult.r_cloud_winter,
             koppen
         };
 
@@ -1013,6 +1021,8 @@ function handleImportHeightmap(data) {
             timing.push({ stage: 'Temperature', ms: performance.now() - t0 });
             debugLayers.tempSummer = tempResult.r_temperature_summer;
             debugLayers.tempWinter = tempResult.r_temperature_winter;
+            debugLayers.cloudSummer = tempResult.r_cloud_summer;
+            debugLayers.cloudWinter = tempResult.r_cloud_winter;
             debugLayers.tempContinentality = tempResult.r_tempContinentality;
 
             t0 = performance.now();
