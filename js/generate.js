@@ -240,7 +240,9 @@ if (worker) {
                     seed: msg.seed,
                     nMag: msg.nMag,
                     debugLayers: msg.debugLayers,
-                    terrainMetrics: msg.terrainMetrics || null
+                    terrainMetrics: msg.terrainMetrics || null,
+                    riverDrainTarget: msg.riverDrainTarget,
+                    riverFlow: msg.riverFlow
                 };
                 if (msg.terrainMetrics) window.__terrainMetrics = msg.terrainMetrics;
                 const tState = performance.now() - tStateStart;
@@ -403,6 +405,8 @@ if (worker) {
                 d.r_elevation = msg.r_elevation;
                 d.t_elevation = msg.t_elevation;
                 d.debugLayers.erosionDelta = msg.erosionDelta;
+                d.riverDrainTarget = msg.riverDrainTarget;
+                d.riverFlow = msg.riverFlow;
                 if (msg.r_wind_east_summer) {
                     d.r_wind_east_summer = msg.r_wind_east_summer;
                     d.r_wind_north_summer = msg.r_wind_north_summer;
@@ -526,6 +530,8 @@ if (worker) {
                 d.coastline_r = new Set(msg.coastline_r);
                 d.ocean_r = new Set(msg.ocean_r);
                 d.r_stress = msg.r_stress;
+                d.riverDrainTarget = msg.riverDrainTarget;
+                d.riverFlow = msg.riverFlow;
                 if (msg.r_wind_east_summer) {
                     d.r_wind_east_summer = msg.r_wind_east_summer;
                     d.r_wind_north_summer = msg.r_wind_north_summer;
@@ -672,6 +678,8 @@ if (worker) {
                     if (msg.climateDebugLayers && d.debugLayers) {
                         Object.assign(d.debugLayers, msg.climateDebugLayers);
                     }
+                    // Only the flow re-weight is sent here — the drain graph itself is unchanged
+                    if (msg.riverFlow) d.riverFlow = msg.riverFlow;
                 }
                 state.climateComputed = true;
                 buildMesh();
@@ -825,6 +833,11 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
             const dl_erosionDelta = new Float32Array(ctx.mesh.numRegions);
             for (let r = 0; r < ctx.mesh.numRegions; r++) dl_erosionDelta[r] = r_elevation[r] - preErosion[r];
             debugLayers.erosionDelta = dl_erosionDelta;
+            // Final-truth drainage graph, extracted after all post-processing so rivers
+            // follow the shipped terrain; stored on ctx since later stages run in a
+            // separate closure. Uniform weight first — re-weighted by precip below.
+            ctx.riverGraph = m.post.computeRiverGraph(ctx.mesh, r_elevation);
+            ctx.riverFlow = m.post.accumulateRiverFlow(ctx.mesh, ctx.riverGraph, null);
             if (!skipClimate) {
                 const windResult = m.wind.computeWind(ctx.mesh, ctx.r_xyz, r_elevation, ctx.plateIsOcean, ctx.r_plate, ctx.noise);
                 debugLayers.pressureSummer = windResult.r_pressure_summer;
@@ -847,6 +860,13 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 debugLayers.tempContinentality = tempResult.r_tempContinentality;
                 debugLayers.koppen = classifyKoppen(ctx.mesh, r_elevation, tempResult, precipResult);
                 debugLayers.trewartha = classifyTrewartha(ctx.mesh, r_elevation, tempResult, precipResult);
+                // Annual precipitation (mean of the two seasons, 0-1) as river-volume weight —
+                // mirrors riverPrecipWeight() in planet-worker.js for the no-worker path.
+                const rw = new Float32Array(precipResult.r_precip_summer.length);
+                for (let r = 0; r < rw.length; r++) {
+                    rw[r] = (Math.max(0, precipResult.r_precip_summer[r]) + Math.max(0, precipResult.r_precip_winter[r])) / 2;
+                }
+                ctx.riverFlow = m.post.accumulateRiverFlow(ctx.mesh, ctx.riverGraph, rw);
             }
             const t_elevation = new Float32Array(ctx.mesh.numTriangles);
             for (let t = 0; t < ctx.mesh.numTriangles; t++) {
@@ -884,7 +904,9 @@ function generateFallback(overrideSeed, toggledIndices, onProgress, skipClimate)
                 r_precip_summer: ctx.precipResult ? ctx.precipResult.r_precip_summer : null,
                 r_precip_winter: ctx.precipResult ? ctx.precipResult.r_precip_winter : null,
                 r_temperature_summer: ctx.tempResult ? ctx.tempResult.r_temperature_summer : null,
-                r_temperature_winter: ctx.tempResult ? ctx.tempResult.r_temperature_winter : null
+                r_temperature_winter: ctx.tempResult ? ctx.tempResult.r_temperature_winter : null,
+                riverDrainTarget: ctx.riverGraph.drainTarget,
+                riverFlow: ctx.riverFlow
             };
             state.climateComputed = !skipClimate;
             buildMesh();

@@ -22,6 +22,7 @@ import {
     DETAIL_NOISE_AMP_KM, DETAIL_NOISE_FREQ, DETAIL_NOISE_OCTAVES,
     DETAIL_NOISE_WARP_FREQ, DETAIL_NOISE_WARP_AMP, DETAIL_NOISE_WARP_OCTAVES,
     DETAIL_NOISE_DAMPEN_STRENGTH,
+    RIVER_PRECIP_WEIGHT_FLOOR,
 } from './terrain-config.js';
 
 /**
@@ -758,6 +759,58 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
             if (!r_isOcean[r] && glacIdx[r] > 0) r_elevation[r] = tmp[r];
         }
     }
+}
+
+/**
+ * Final-truth drainage graph for river rendering — computed AFTER all
+ * post-processing so rivers follow the shipped terrain (deposition
+ * floodplains, rebound uplift included). Pits terminate their chain
+ * (endorheic basins) instead of being carved like the eroder does.
+ */
+export function computeRiverGraph(mesh, r_elevation) {
+    const N = mesh.numRegions;
+    const { adjOffset, adjList } = mesh;
+    const land = [];
+    for (let r = 0; r < N; r++) {
+        if (r_elevation[r] > 0) land.push(r);
+    }
+    land.sort((a, b) => r_elevation[b] - r_elevation[a]);
+    const drainTarget = new Int32Array(N).fill(-1);
+    for (let i = 0; i < land.length; i++) {
+        const r = land[i];
+        const h = r_elevation[r];
+        let bestNb = -1, bestDrop = 0;
+        for (let j = adjOffset[r], jEnd = adjOffset[r + 1]; j < jEnd; j++) {
+            const nb = adjList[j];
+            const drop = h - r_elevation[nb];
+            if (drop > bestDrop) { bestDrop = drop; bestNb = nb; }
+        }
+        drainTarget[r] = bestNb;
+    }
+    return { drainTarget, order: Int32Array.from(land) };
+}
+
+/**
+ * Accumulate flow down the river graph. r_weight (0-1 per region, or null
+ * for uniform area weighting) modulates each cell's contribution — used to
+ * couple river volume to annual precipitation once climate has computed.
+ * Output is physical-area scaled (flowScale) so thresholds are km²-stable
+ * across the Detail slider.
+ */
+export function accumulateRiverFlow(mesh, riverGraph, r_weight) {
+    const N = mesh.numRegions;
+    const { drainTarget, order } = riverGraph;
+    const flowScale = EROSION_REF_REGIONS / N;
+    const flow = new Float32Array(N);
+    const floor = RIVER_PRECIP_WEIGHT_FLOOR;
+    for (let i = 0; i < order.length; i++) {
+        const r = order[i];
+        flow[r] += r_weight ? (floor + (1 - floor) * Math.max(0, Math.min(1, r_weight[r]))) : 1;
+        const t = drainTarget[r];
+        if (t >= 0) { flow[t] += flow[r]; }
+    }
+    for (let r = 0; r < N; r++) { flow[r] *= flowScale; }
+    return flow;
 }
 
 /**

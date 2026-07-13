@@ -494,6 +494,11 @@ export const VALLEY_FLOOR_MIN = 0.001;
 export const FLOOD_NOISE_AMP = 0.01;
 export const FLOOD_CARVE_RADIUS_FRAC = 0.3;
 
+// ── Rivers (view-layer; extracted after all post-processing) ──
+// Weight floor keeps rivers alive across deserts (exotic rivers like the Nile)
+// once flow is precipitation-weighted.
+export const RIVER_PRECIP_WEIGHT_FLOOR = 0.15;
+
 // ── Plate Generation ──
 export const PLATE_LOW_PLATE_T_HIGH = 80;
 export const PLATE_LOW_PLATE_T_RANGE = 60;
