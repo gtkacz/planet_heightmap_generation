@@ -488,9 +488,19 @@ export const GLACIAL_MID_FLOOD_FRAC = 0.75;
 export const GLACIAL_MID_FLOOD_CARVE = 0.85;
 export const GLACIAL_INITIAL_CARVE = 0.5;
 
-// ── Hydraulic Erosion (terrain-post.js) ──
-export const HYDRAULIC_DEPOSIT_FRAC = 0.5;
-export const HYDRAULIC_SLOPE_SENSITIVITY = 50;
+// ── Sediment transport (replaces the flat immediate-deposit fraction) ──
+// Eroded material rides the drainage graph with a stream-power carrying
+// capacity; excess settles where slopes flatten (floodplains) and at ocean
+// mouths (deltas). The Deposition slider spans sharp-canyon (0, all sediment
+// exported) to floodplain/delta (1). DEFAULT is calibrated so the shipped
+// look sits near the pre-SP5 flat-fraction behavior.
+export const DEPOSITION_DEFAULT = 0.5;
+export const SEDIMENT_CAPACITY_K = 0.002;
+export const SEDIMENT_SETTLE_BASE = 0.25;
+export const SEDIMENT_SETTLE_RANGE = 0.55;
+export const SEDIMENT_SINK_SETTLE = 0.5;
+export const SEDIMENT_DELTA_FRAC = 0.6;
+export const SEDIMENT_DELTA_CAP = -0.01;
 
 // Reference region count for flow-accumulation normalization (SP2).
 // flow[] and iceFlow[] are raw upstream-cell counts, which scale ∝ numRegions

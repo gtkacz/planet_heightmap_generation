@@ -16,7 +16,9 @@ import {
     GLACIAL_WIDENING_FRAC, GLACIAL_TERMINUS_RATIO, GLACIAL_FJORD_ICE_MIN,
     GLACIAL_POST_SMOOTH, GLACIAL_MID_FLOOD_FRAC, GLACIAL_MID_FLOOD_CARVE,
     GLACIAL_INITIAL_CARVE,
-    HYDRAULIC_DEPOSIT_FRAC, HYDRAULIC_SLOPE_SENSITIVITY, EROSION_REF_REGIONS,
+    EROSION_REF_REGIONS,
+    SEDIMENT_CAPACITY_K, SEDIMENT_SETTLE_BASE, SEDIMENT_SETTLE_RANGE,
+    SEDIMENT_SINK_SETTLE, SEDIMENT_DELTA_FRAC, SEDIMENT_DELTA_CAP,
     THERMAL_TRANSFER_FRAC,
     RIDGE_SHARPEN_CAP, VALLEY_DEEPEN_FACTOR, VALLEY_FLOOR_FRAC, VALLEY_FLOOR_MIN,
     REBOUND_RESTORE_FRAC, REBOUND_FLEX_KM,
@@ -402,7 +404,7 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     hIters, K, m, dt,
     tIters, talusSlope, kThermal,
     gIters, glacialStrength,
-    neighborDist, r_erodibility)
+    neighborDist, r_erodibility, deposition)
 {
     gIters = gIters || 0;
     glacialStrength = glacialStrength || 0;
@@ -429,6 +431,8 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
     const cellDist = new Float32Array(N);
     const flow = new Float32Array(N);
     const delta = new Float32Array(N);
+    const eroAmt = new Float32Array(N);
+    const sedLoad = new Float32Array(N);
 
     // Priority-flood pit resolution: ensure every land cell drains to ocean
     // before hydraulic erosion begins. Carves canyons through spill points.
@@ -649,7 +653,8 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                 if (target >= 0) flow[target] += flow[r];
             }
 
-            // Implicit stream power solve (ascending elevation order) + sediment deposition
+            // Implicit stream power solve (ascending elevation order)
+            eroAmt.fill(0);
             for (let i = landCount - 1; i >= 0; i--) {
                 const r = landCells[i];
                 const target = drainTarget[r];
@@ -663,21 +668,43 @@ export function erodeComposite(mesh, r_elevation, r_xyz, r_isOcean,
                 if (h_new < h_receiver) h_new = h_receiver;
                 if (h_new < 0) h_new = 0;
 
-                // Sediment deposition: deposit fraction of eroded material at receiver
-                const eroded = r_elevation[r] - h_new;
-                if (eroded > 0 && !r_isOcean[target]) {
-                    const drainOfTarget = drainTarget[target];
-                    let receiverSlope = 0;
-                    if (drainOfTarget >= 0 && cellDist[target] > 0) {
-                        receiverSlope = Math.abs(r_elevation[target] - r_elevation[drainOfTarget]) / cellDist[target];
-                    }
-                    const depositFrac = HYDRAULIC_DEPOSIT_FRAC / (1 + receiverSlope * HYDRAULIC_SLOPE_SENSITIVITY);
-                    const deposit = eroded * depositFrac;
-                    r_elevation[target] += deposit;
-                    if (r_elevation[target] > h_new) r_elevation[target] = h_new;
-                }
-
+                eroAmt[r] = r_elevation[r] - h_new;
                 r_elevation[r] = h_new;
+            }
+
+            // Sediment routing (descending order): carry load downstream with a
+            // stream-power capacity; settle the excess (floodplains), fill pits
+            // (playas), and drop a delta share at ocean mouths.
+            if (deposition > 0) {
+                sedLoad.fill(0);
+                const settleFrac = SEDIMENT_SETTLE_BASE + deposition * SEDIMENT_SETTLE_RANGE;
+                for (let i = 0; i < landCount; i++) {
+                    const r = landCells[i];
+                    let load = sedLoad[r] + eroAmt[r];
+                    if (load <= 0) continue;
+                    const target = drainTarget[r];
+                    if (target < 0) {
+                        r_elevation[r] += load * SEDIMENT_SINK_SETTLE;
+                        continue;
+                    }
+                    let slopeR = 0;
+                    if (cellDist[r] > 0) {
+                        slopeR = Math.max(0, (r_elevation[r] - r_elevation[target]) / cellDist[r]);
+                    }
+                    const capacity = SEDIMENT_CAPACITY_K * Math.pow(flow[r] * flowScale, m) * slopeR;
+                    if (load > capacity) {
+                        const settle = (load - capacity) * settleFrac;
+                        r_elevation[r] += settle;
+                        load -= settle;
+                    }
+                    if (r_isOcean[target]) {
+                        const dep = load * deposition * SEDIMENT_DELTA_FRAC;
+                        r_elevation[target] += dep;
+                        if (r_elevation[target] > SEDIMENT_DELTA_CAP) r_elevation[target] = SEDIMENT_DELTA_CAP;
+                    } else {
+                        sedLoad[target] += load;
+                    }
+                }
             }
         }
 
