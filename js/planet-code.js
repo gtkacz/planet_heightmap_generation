@@ -19,12 +19,18 @@ const SLIDERS = [
     { min: -15,   step: 1,    count: 31  }, // 13: Temperature
     { min: -1,    step: 0.1,  count: 21  }, // 14: Precipitation
     { min: 0,     step: 0.01, count: 101 }, // 15: Land Coverage
+    { min: 0,     step: 0.05, count: 21  }, // 16: Deposition
+    { min: 0,     step: 0.05, count: 21  }, // 17: Rebound
+    { min: 0,     step: 1,    count: 13  }, // 18: Hotspots
 ];
 
-// Mixed-radix bases (right-to-left): lcIdx, prcIdx, tmpIdx, csvIdx, twIdx, scIdx, rsIdx, teIdx, heIdx, glIdx, smIdx, nsIdx, cnIdx, pIdx, jIdx, nIdx, seed
-const RADICES = [101, 21, 31, 21, 21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 2556];
+// Mixed-radix bases (right-to-left): dpIdx, rbIdx, hsIdx, lcIdx, prcIdx, tmpIdx, csvIdx,
+// twIdx, scIdx, rsIdx, teIdx, heIdx, glIdx, smIdx, nsIdx, cnIdx, pIdx, jIdx, nIdx, seed
+// (19 entries — one per field; the three new ones are prepended/least-significant)
+const RADICES = [21, 21, 13, 101, 21, 31, 21, 21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 2556];
 const SEED_MAX = 16777216; // 2^24
-const BASE_LEN = 22; // base code length (no toggles)
+const BASE_LEN = 25; // base code length (no toggles)
+const PREV6_LEN = 22; // previous 22-char codes (before deposition/rebound/hotspots)
 const PREV5_LEN = 21; // previous 21-char codes (before land coverage)
 const PREV4_LEN = 18; // previous 18-char codes (before continent variety/temp/precip)
 const PREV3_LEN = 17; // previous 17-char codes (before terrain warp)
@@ -51,6 +57,9 @@ const PREV5_RADICES = [21, 31, 21, 21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 
 
 // Previous4-gen radices for decoding 18-char codes (before continent variety/temp/precip)
 const PREV4_RADICES = [21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 2556];
+
+// Previous6-gen radices for decoding 22-char codes (before deposition/rebound/hotspots)
+const PREV6_RADICES = [101, 21, 31, 21, 21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 2556];
 
 function toIndex(value, slider) {
     return Math.round((value - slider.min) / slider.step);
@@ -126,7 +135,8 @@ const DECODE_FORMATS = {
         ],
         defaults: { terrainWarp: 0.5, glacialErosion: 0, thermalErosion: 0.1,
                     ridgeSharpening: 0.35, soilCreep: 0.05, continentSizeVariety: 0,
-                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3 }
+                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3,
+                    deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [PREV_LEN]: {
         radices: PREV_RADICES,
@@ -136,7 +146,8 @@ const DECODE_FORMATS = {
         ],
         defaults: { terrainWarp: 0.5, glacialErosion: 0, ridgeSharpening: 0.35,
                     soilCreep: 0.05, continentSizeVariety: 0,
-                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3 }
+                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3,
+                    deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [PREV2_LEN]: {
         radices: PREV2_RADICES,
@@ -145,7 +156,8 @@ const DECODE_FORMATS = {
             ['smoothing', 5], ['roughness', 4], ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0],
         ],
         defaults: { terrainWarp: 0.5, glacialErosion: 0, continentSizeVariety: 0,
-                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3 }
+                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3,
+                    deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [PREV3_LEN]: {
         radices: PREV3_RADICES,
@@ -155,7 +167,8 @@ const DECODE_FORMATS = {
             ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0],
         ],
         defaults: { terrainWarp: 0.5, continentSizeVariety: 0,
-                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3 }
+                    temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3,
+                    deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [PREV4_LEN]: {
         radices: PREV4_RADICES,
@@ -164,7 +177,8 @@ const DECODE_FORMATS = {
             ['thermalErosion', 8], ['hydraulicErosion', 7], ['glacialErosion', 6],
             ['smoothing', 5], ['roughness', 4], ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0],
         ],
-        defaults: { continentSizeVariety: 0, temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3 }
+        defaults: { continentSizeVariety: 0, temperatureOffset: 0, precipitationOffset: 0, landCoverage: 0.3,
+                    deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [PREV5_LEN]: {
         radices: PREV5_RADICES,
@@ -174,11 +188,22 @@ const DECODE_FORMATS = {
             ['thermalErosion', 8], ['hydraulicErosion', 7], ['glacialErosion', 6],
             ['smoothing', 5], ['roughness', 4], ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0],
         ],
-        defaults: { landCoverage: 0.3 }
+        defaults: { landCoverage: 0.3, deposition: 0.5, rebound: 0.35, numHotspots: 5 }
+    },
+    [PREV6_LEN]: {
+        radices: PREV6_RADICES,
+        fields: [
+            ['landCoverage', 15], ['precipitationOffset', 14], ['temperatureOffset', 13],
+            ['continentSizeVariety', 12], ['terrainWarp', 11], ['soilCreep', 10], ['ridgeSharpening', 9],
+            ['thermalErosion', 8], ['hydraulicErosion', 7], ['glacialErosion', 6],
+            ['smoothing', 5], ['roughness', 4], ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0],
+        ],
+        defaults: { deposition: 0.5, rebound: 0.35, numHotspots: 5 }
     },
     [BASE_LEN]: {
         radices: RADICES,
         fields: [
+            ['deposition', 16], ['rebound', 17], ['numHotspots', 18],
             ['landCoverage', 15], ['precipitationOffset', 14], ['temperatureOffset', 13],
             ['continentSizeVariety', 12], ['terrainWarp', 11], ['soilCreep', 10], ['ridgeSharpening', 9],
             ['thermalErosion', 8], ['hydraulicErosion', 7], ['glacialErosion', 6],
@@ -234,11 +259,14 @@ function decodeFormat(packed, config, toggleStr) {
  * @param {number} temperatureOffset - Temperature offset (-15–15, step 1)
  * @param {number} precipitationOffset - Precipitation offset (-1–1, step 0.1)
  * @param {number} landCoverage - Land Coverage (0–1, step 0.05)
+ * @param {number} deposition - Deposition (0–1, step 0.05)
+ * @param {number} rebound - Rebound (0–1, step 0.05)
+ * @param {number} numHotspots - Hotspots (0–12, step 1)
  * @param {number[]} [toggledIndices=[]] - Sorted array of toggled plate indices
  * @param {{plateIndex:number,bearingDeg:number,speedPercent:number}[]} [motionOverrides=[]] - Plate motion records
- * @returns {string} base36 code with optional land/type (`-`) and motion (`~`) suffixes
+ * @returns {string} base36 code (25 chars) with optional land/type (`-`) and motion (`~`) suffixes
  */
-export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, soilCreep, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, toggledIndices = [], motionOverrides = []) {
+export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, soilCreep, continentSizeVariety, temperatureOffset, precipitationOffset, landCoverage, deposition, rebound, numHotspots, toggledIndices = [], motionOverrides = []) {
     const nIdx  = toIndex(N, SLIDERS[0]);
     const jIdx  = toIndex(jitter, SLIDERS[1]);
     const pIdx  = toIndex(P, SLIDERS[2]);
@@ -255,25 +283,31 @@ export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, t
     const tmpIdx = toIndex(temperatureOffset, SLIDERS[13]);
     const prcIdx = toIndex(precipitationOffset, SLIDERS[14]);
     const lcIdx  = toIndex(landCoverage, SLIDERS[15]);
+    const dpIdx = toIndex(deposition, SLIDERS[16]);
+    const rbIdx = toIndex(rebound, SLIDERS[17]);
+    const hsIdx = toIndex(numHotspots, SLIDERS[18]);
 
-    // Mixed-radix packing (least-significant first: lcIdx, prcIdx, tmpIdx, csvIdx, twIdx, ...)
+    // Mixed-radix packing (least-significant first: dpIdx, rbIdx, hsIdx, lcIdx, ...)
     let packed = BigInt(seed);
-    packed = packed * BigInt(RADICES[15]) + BigInt(nIdx);    // * 2556
-    packed = packed * BigInt(RADICES[14]) + BigInt(jIdx);    // * 21
-    packed = packed * BigInt(RADICES[13]) + BigInt(pIdx);    // * 117
-    packed = packed * BigInt(RADICES[12]) + BigInt(cnIdx);   // * 10
-    packed = packed * BigInt(RADICES[11]) + BigInt(nsIdx);   // * 51
-    packed = packed * BigInt(RADICES[10]) + BigInt(smIdx);   // * 21
-    packed = packed * BigInt(RADICES[9])  + BigInt(glIdx);   // * 21
-    packed = packed * BigInt(RADICES[8])  + BigInt(heIdx);   // * 21
-    packed = packed * BigInt(RADICES[7])  + BigInt(teIdx);   // * 21
-    packed = packed * BigInt(RADICES[6])  + BigInt(rsIdx);   // * 21
-    packed = packed * BigInt(RADICES[5])  + BigInt(scIdx);   // * 21
-    packed = packed * BigInt(RADICES[4])  + BigInt(twIdx);   // * 21
-    packed = packed * BigInt(RADICES[3])  + BigInt(csvIdx);  // * 21
-    packed = packed * BigInt(RADICES[2])  + BigInt(tmpIdx);  // * 31
-    packed = packed * BigInt(RADICES[1])  + BigInt(prcIdx);  // * 21
-    packed = packed * BigInt(RADICES[0])  + BigInt(lcIdx);   // * 21
+    packed = packed * BigInt(RADICES[18]) + BigInt(nIdx);    // * 2556
+    packed = packed * BigInt(RADICES[17]) + BigInt(jIdx);    // * 21
+    packed = packed * BigInt(RADICES[16]) + BigInt(pIdx);    // * 117
+    packed = packed * BigInt(RADICES[15]) + BigInt(cnIdx);   // * 10
+    packed = packed * BigInt(RADICES[14]) + BigInt(nsIdx);   // * 51
+    packed = packed * BigInt(RADICES[13]) + BigInt(smIdx);   // * 21
+    packed = packed * BigInt(RADICES[12]) + BigInt(glIdx);   // * 21
+    packed = packed * BigInt(RADICES[11]) + BigInt(heIdx);   // * 21
+    packed = packed * BigInt(RADICES[10]) + BigInt(teIdx);   // * 21
+    packed = packed * BigInt(RADICES[9])  + BigInt(rsIdx);   // * 21
+    packed = packed * BigInt(RADICES[8])  + BigInt(scIdx);   // * 21
+    packed = packed * BigInt(RADICES[7])  + BigInt(twIdx);   // * 21
+    packed = packed * BigInt(RADICES[6])  + BigInt(csvIdx);  // * 21
+    packed = packed * BigInt(RADICES[5])  + BigInt(tmpIdx);  // * 31
+    packed = packed * BigInt(RADICES[4])  + BigInt(prcIdx);  // * 21
+    packed = packed * BigInt(RADICES[3])  + BigInt(lcIdx);   // * 101
+    packed = packed * BigInt(RADICES[2])  + BigInt(hsIdx);   // * 13
+    packed = packed * BigInt(RADICES[1])  + BigInt(rbIdx);   // * 21
+    packed = packed * BigInt(RADICES[0])  + BigInt(dpIdx);   // * 21
 
     let code = packed.toString(36).padStart(BASE_LEN, '0');
 
@@ -298,10 +332,10 @@ export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, t
 
 /**
  * Decode a base36 planet code back into planet parameters.
- * Supports 22-char (current), 21-char (prev5), 18-char (prev4), 17-char (prev3), 16-char (prev2), 14-char (previous-gen), and 13-char (legacy) codes.
+ * Supports 25-char (current), 22-char (prev6), 21-char (prev5), 18-char (prev4), 17-char (prev3), 16-char (prev2), 14-char (previous-gen), and 13-char (legacy) codes.
  * Optional suffixes are `-` + land/type toggle indices and `~` + motion records.
- * @param {string} code - Encoded planet code
- * @returns {{ seed: number, N: number, jitter: number, P: number, numContinents: number, roughness: number, terrainWarp: number, smoothing: number, glacialErosion: number, hydraulicErosion: number, thermalErosion: number, ridgeSharpening: number, soilCreep: number, continentSizeVariety: number, temperatureOffset: number, precipitationOffset: number, landCoverage: number, toggledIndices: number[], motionOverrides: {plateIndex:number,bearingDeg:number,speedPercent:number}[] } | null}
+ * @param {string} code - base36 code (13, 14, 16, 17, 18, 21, 22, or 25 chars, optionally followed by "-" + toggle indices and/or "~" + motion records)
+ * @returns {{ seed: number, N: number, jitter: number, P: number, numContinents: number, roughness: number, terrainWarp: number, smoothing: number, glacialErosion: number, hydraulicErosion: number, thermalErosion: number, ridgeSharpening: number, soilCreep: number, continentSizeVariety: number, temperatureOffset: number, precipitationOffset: number, landCoverage: number, deposition: number, rebound: number, numHotspots: number, toggledIndices: number[], motionOverrides: {plateIndex:number,bearingDeg:number,speedPercent:number}[] } | null}
  */
 export function decodePlanetCode(code) {
     if (typeof code !== 'string') return null;

@@ -176,6 +176,9 @@ function buildPlanetCode(sc, rung, defaults) {
     defaults.temperatureOffset,
     defaults.precipitationOffset,
     defaults.landCoverage,
+    0.5,  // deposition: fixed app default (sDp) — harness varies only seed + detail
+    0.35, // rebound: fixed app default (sRb)
+    5,    // numHotspots: fixed app default (sHs)
     [],
   );
 }
